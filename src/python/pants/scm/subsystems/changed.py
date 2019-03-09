@@ -58,20 +58,56 @@ class Changed(Subsystem):
              help='Stop searching for owners once a source is mapped to at least one owning target.')
 
 
-@dataclass(frozen=True)
-class ScmWrapper:
-  scm: Scm
-
 
 @dataclass(frozen=True)
 class ChangedFilesResult:
   changed_files: Tuple[str]
 
 
+@dataclass(frozen=True)
+class ScmResult:
+  scm: Scm
+
+
+@dataclass(frozen=True)
+class ScmRequest:
+  reason_for_scm: str
+
+
+class ScmRequestFailed(Exception): pass
+
+
+@rule
+def try_get_scm(scm_request: ScmRequest) -> ScmResult:
+  # TODO: if this is a blocking call, convert it to v2 rules as well!
+  scm = get_scm()
+  if not scm:
+    raise ScmRequestFailed(
+      # TODO: centralize the error messaging for when an SCM is required, and describe what SCMs
+      # are supported!
+      '{} are not available without a recognized SCM (usually git).'
+      .format(scm_request.reason_for_scm)
+    )
+  return ScmResult(scm)
+
+
+@dataclass(frozen=True)
+class ChangedRequestWithScm:
+  scm_request: ScmRequest
+  changed_request: ChangedRequest
+
+
+@dataclass(frozen=True)
+class ChangedFilesResult:
+  changed_files: Tuple[str, ...]
+
+
 # TODO: ensure this rule isn't ever cached with an @ensure_daemon integration test!
 @rule
-def get_changed(scm: ScmWrapper, changed_request: ChangedRequest) -> ChangedFilesResult:
-  scm = scm.scm
+def get_changed(changed_request_with_scm: ChangedRequestWithScm) -> ChangedFilesResult:
+  scm_result = yield Get(ScmResult, ScmRequest, changed_request_with_scm.scm_request)
+  scm = scm_result.scm
+  changed_request = changed_request_with_scm.changed_request
   workspace = ScmWorkspace(scm)
   diffspec = changed_request.diffspec
   if diffspec:
@@ -81,12 +117,12 @@ def get_changed(scm: ScmWrapper, changed_request: ChangedRequest) -> ChangedFile
     # .current_rev_identifier() is just a static string for git right now (not slow to access).
     changes_since = changed_request.changes_since or scm.current_rev_identifier()
     result = workspace.touched_files(changes_since)
-  return ChangedFilesResult(changed_files=result)
+  yield ChangedFilesResult(changed_files=result)
 
 
 def rules():
   return [
-    RootRule(ChangedRequest),
-    RootRule(ScmWrapper),
+    try_get_scm,
+    RootRule(ChangedRequestWithScm),
     get_changed,
   ]

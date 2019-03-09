@@ -197,3 +197,12 @@ python_tests(
     'src/python/pants/engine/legacy:structs',
   ]
 )
+
+python_tests(
+  name = 'query_integration',
+  sources = ['test_query_integration.py'],
+  dependencies = [
+    'tests/python/pants_test:int-test',
+  ],
+  tags = {'integration'},
+)

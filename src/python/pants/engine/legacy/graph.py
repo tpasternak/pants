@@ -31,7 +31,7 @@ from pants.engine.parser import HydratedStruct
 from pants.engine.rules import RootRule, UnionRule, rule, union
 from pants.engine.selectors import Get
 from pants.option.global_options import GlobMatchErrorBehavior
-from pants.scm.subsystems.changed import ChangedFilesResult, ChangedRequest, IncludeDependees
+from pants.scm.subsystems.changed import ChangedFilesResult, ChangedRequest, ChangedRequestWithScm, IncludeDependees
 from pants.source.filespec import any_matches_filespec
 from pants.source.wrapped_globs import EagerFilesetWithSpec, FilesetRelPathWrapper
 
@@ -450,11 +450,11 @@ def find_owners(
 
 
 @rule
-def changed_file_owners(changed_request: ChangedRequest) -> OwnersRequest:
+def changed_file_owners(changed_request_with_scm: ChangedRequestWithScm) -> OwnersRequest:
   """Convert a description of changed files via an SCM into an owners request for those files."""
-  result = yield Get(ChangedFilesResult, ChangedRequest, changed_request)
+  result = yield Get(ChangedFilesResult, ChangedRequestWithScm, changed_request_with_scm)
   yield OwnersRequest(sources=result.changed_files,
-                      include_dependees=changed_request.include_dependees)
+                      include_dependees=changed_request_with_scm.changed_request.include_dependees)
 
 
 @rule

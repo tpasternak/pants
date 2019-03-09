@@ -28,18 +28,11 @@ from pants.engine.legacy.address_mapper import LegacyAddressMapper
 from pants.engine.legacy.graph import LegacyBuildGraph, create_legacy_graph_tasks
 from pants.engine.legacy.options_parsing import create_options_parsing_rules
 from pants.engine.legacy.parser import LegacyPythonCallbacksParser
-from pants.engine.legacy.structs import (
-  JvmAppAdaptor,
-  JvmBinaryAdaptor,
-  PageAdaptor,
-  PantsPluginAdaptor,
-  PythonAppAdaptor,
-  PythonBinaryAdaptor,
-  PythonTargetAdaptor,
-  PythonTestsAdaptor,
-  RemoteSourcesAdaptor,
-  TargetAdaptor,
-)
+from pants.engine.legacy.query import rules as query_rules
+from pants.engine.legacy.structs import (AppAdaptor, JvmAppAdaptor, JvmBinaryAdaptor, PageAdaptor,
+                                         PantsPluginAdaptor, PythonAppAdaptor, PythonBinaryAdaptor,
+                                         PythonTargetAdaptor, PythonTestsAdaptor,
+                                         RemoteSourcesAdaptor, TargetAdaptor)
 from pants.engine.legacy.structs import rules as structs_rules
 from pants.engine.mapper import AddressMapper
 from pants.engine.parser import SymbolTable
@@ -393,8 +386,11 @@ class EngineInitializer:
       create_graph_rules(address_mapper) +
       create_options_parsing_rules() +
       structs_rules() +
+      # TODO: This should happen automatically, but most tests (e.g. tests/python/pants_test/auth) fail if it's not here:
+      python_test_runner.rules() +
       changed_rules() +
       query_rules_memoized +
+      target_roots_calculator_rules() +
       rules
     )
 
