@@ -266,3 +266,6 @@ class Specs:
 
   def __iter__(self):
     return iter(self.dependencies)
+
+  def __bool__(self):
+    return bool(self.dependencies)

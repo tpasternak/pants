@@ -224,10 +224,11 @@ def _make_rule(
 
   is_goal_cls = isinstance(return_type, type) and issubclass(return_type, Goal)
   if is_goal_cls == cacheable:
-    raise TypeError(
-      'An `@rule` that produces a `Goal` must be declared with @console_rule in order to signal '
-      'that it is not cacheable.'
-    )
+    # TODO(#????): convert this back into a TypeError!
+    logger.error(
+      'An `@rule` that produces a `Goal` must be declared with @console_rule in order '
+      'to signal that it is not cacheable.')
+    cacheable = True
 
   def wrapper(func):
     if not inspect.isfunction(func):
@@ -486,8 +487,8 @@ class TaskRule(Rule):
   """A Rule that runs a task function when all of its input selectors are satisfied.
 
   NB: This API is experimental, and not meant for direct consumption. To create a `TaskRule` you
-  should always prefer the `@rule` constructor, and in cases where that is too constraining
-  (likely due to #4535) please bump or open a ticket to explain the usecase.
+  should always prefer the `@rule` constructor, and in cases where that is too constraining, please
+  bump or open a ticket to explain the usecase.
   """
   _output_type: Type
   input_selectors: Tuple[Type, ...]

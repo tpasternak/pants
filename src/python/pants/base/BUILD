@@ -189,6 +189,7 @@ python_library(
   sources = ['target_roots.py'],
   dependencies = [
     '3rdparty/python:dataclasses',
+    ':specs',
   ],
   tags = {'partially_type_checked'},
 )

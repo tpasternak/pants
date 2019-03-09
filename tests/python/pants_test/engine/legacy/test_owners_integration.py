@@ -33,7 +33,7 @@ class ListOwnersIntegrationTest(PantsRunIntegrationTest):
   def test_owner_list_two_target_specs(self):
     # Test that any of these combinations fail with the same error message.
     expected_error = ('Multiple target selection methods provided. Please use only one of '
-                      '--changed-*, --owner-of, or target specs')
+                      '--changed-*, --owner-of, --query, or target specs')
     pants_run_1 = self.do_command('--owner-of=testprojects/tests/python/pants/dummies/test_pass.py',
                                   '--changed-parent=master',
                                   'list',

@@ -11,8 +11,9 @@ from pants.base.specs import SingleAddress, Specs
 from pants.base.target_roots import TargetRoots
 from pants.engine.addressable import BuildFileAddresses
 from pants.engine.legacy.graph import OwnersRequest
-from pants.goal.workspace import ScmWorkspace
-from pants.scm.subsystems.changed import ChangedRequest
+from pants.engine.query import QueryComponent, QueryParseInput
+from pants.engine.selectors import Params
+from pants.scm.subsystems.changed import ChangedRequest, IncludeDependees, ScmWrapper
 
 
 logger = logging.getLogger(__name__)
@@ -43,16 +44,6 @@ class TargetRootsCalculator:
       tags=tags)
 
   @classmethod
-  def changed_files(cls, scm, changes_since=None, diffspec=None):
-    """Determines the files changed according to SCM/workspace and options."""
-    workspace = ScmWorkspace(scm)
-    if diffspec:
-      return workspace.changes_in(diffspec)
-
-    changes_since = changes_since or scm.current_rev_identifier()
-    return workspace.touched_files(changes_since)
-
-  @classmethod
   def create(cls, options, session, build_root=None, exclude_patterns=None, tags=None):
     """
     :param Options options: An `Options` instance to use.
@@ -74,46 +65,74 @@ class TargetRootsCalculator:
     # Determine the `--owner-of=` arguments provided from the global options
     owned_files = options.for_global_scope().owner_of
 
-    logger.debug('spec_roots are: %s', spec_roots)
-    logger.debug('changed_request is: %s', changed_request)
-    logger.debug('owned_files are: %s', owned_files)
-    targets_specified = sum(1 for item
-                         in (changed_request.is_actionable(), owned_files, spec_roots.dependencies)
-                         if item)
+    # Parse --query expressions into objects which can be resolved into BuildFileAddresses via v2
+    # rules.
+    query_expr_strings = options.for_global_scope().query
+    exprs = session.product_request(
+      QueryComponent,
+      [QueryParseInput(s) for s in query_expr_strings])
+
+    logger.debug('spec_roots are: %s (%s)', spec_roots, bool(spec_roots))
+    logger.debug('changed_request is: %s (%s)', changed_request, bool(changed_request.is_actionable()))
+    logger.debug('owned_files are: %s (%s)', owned_files, bool(owned_files))
+    logger.debug('query exprs are: %s (%s)', exprs, bool(exprs))
+    targets_specified = sum(
+      1 for item
+      in (changed_request.is_actionable(), owned_files, spec_roots, exprs)
+      if item)
 
     if targets_specified > 1:
-      # We've been provided more than one of: a change request, an owner request, or spec roots.
+      # We've been provided more than one of: a change request, an owner request, a query request,
+      # or spec roots.
       raise InvalidSpecConstraint(
         'Multiple target selection methods provided. Please use only one of '
-        '--changed-*, --owner-of, or target specs'
+        '--changed-*, --owner-of, --query, or target specs'
       )
 
-    if changed_request.is_actionable():
+    def scm(entity):
       scm = get_scm()
       if not scm:
         raise InvalidSpecConstraint(
-          'The --changed-* options are not available without a recognized SCM (usually git).'
+          # TODO: centralize the error messaging for when an SCM is required, and describe what SCMs
+          # are supported!
+          '{} are not available without a recognized SCM (usually git).'
+          .format(entity)
         )
-      changed_files = cls.changed_files(
-          scm,
-          changes_since=changed_request.changes_since,
-          diffspec=changed_request.diffspec)
+      return scm
+
+    if changed_request.is_actionable():
       # We've been provided no spec roots (e.g. `./pants list`) AND a changed request. Compute
       # alternate target roots.
-      request = OwnersRequest(sources=tuple(changed_files),
-                              include_dependees=str(changed_request.include_dependees))
-      changed_addresses, = session.product_request(BuildFileAddresses, [request])
+      scm = scm('The --changed-* options')
+      changed_addresses, = session.product_request(
+        BuildFileAddresses,
+        [Params(ScmWrapper(scm), changed_request)])
       logger.debug('changed addresses: %s', changed_addresses)
       dependencies = tuple(SingleAddress(a.spec_path, a.target_name) for a in changed_addresses)
       return TargetRoots(Specs(dependencies=dependencies, exclude_patterns=exclude_patterns, tags=tags))
-
-    if owned_files:
+    elif owned_files:
       # We've been provided no spec roots (e.g. `./pants list`) AND a owner request. Compute
       # alternate target roots.
-      request = OwnersRequest(sources=tuple(owned_files), include_dependees=str('none'))
+      request = OwnersRequest(sources=tuple(owned_files), include_dependees=IncludeDependees.none)
       owner_addresses, = session.product_request(BuildFileAddresses, [request])
       logger.debug('owner addresses: %s', owner_addresses)
       dependencies = tuple(SingleAddress(a.spec_path, a.target_name) for a in owner_addresses)
       return TargetRoots(Specs(dependencies=dependencies, exclude_patterns=exclude_patterns, tags=tags))
-
-    return TargetRoots(spec_roots)
+    elif exprs:
+      # TODO: this should only be necessary for the `changed-since`/etc queries! This can be done by
+      # returning a dummy ScmWrapper if no `changed-*` queries are used!
+      scm = scm('The --query option')
+      # TODO(#7346): deprecate --owner-of and --changed-* in favor of --query versions, allow
+      # pipelining of successive query expressions with the command-line target specs as the initial
+      # input!
+      if len(exprs) > 1:
+        raise ValueError('Only one --query argument is currently supported! Received: {}.'
+                         .format(exprs))
+      expr_addresses, = session.product_request(
+        BuildFileAddresses,
+        [Params(ScmWrapper(scm), exprs[0])])
+      logger.debug('expr addresses: %s', expr_addresses)
+      dependencies = tuple(SingleAddress(a.spec_path, a.target_name) for a in expr_addresses)
+      return TargetRoots(Specs(dependencies=dependencies, exclude_patterns=exclude_patterns, tags=tags))
+    else:
+      return TargetRoots(spec_roots)

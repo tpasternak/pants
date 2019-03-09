@@ -51,6 +51,7 @@ class Dependencies(ConsoleTask):
       if not self.is_internal_only:
         # TODO(John Sirois): We need an external payload abstraction at which point knowledge
         # of jar and requirement payloads can go and this hairball will be untangled.
+        # TODO: This would be a great use case for @union and UnionRule!
         if isinstance(tgt.payload.get_field('requirements'), PythonRequirementsField):
           for requirement in tgt.payload.requirements:
             yield str(requirement.requirement)

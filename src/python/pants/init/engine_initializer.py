@@ -44,15 +44,14 @@ from pants.engine.legacy.structs import rules as structs_rules
 from pants.engine.mapper import AddressMapper
 from pants.engine.parser import SymbolTable
 from pants.engine.platform import create_platform_rules
+from pants.engine.query import rules as query_rules
 from pants.engine.rules import RootRule, UnionMembership, rule
 from pants.engine.scheduler import Scheduler
 from pants.engine.selectors import Params
 from pants.init.options_initializer import BuildConfigInitializer, OptionsInitializer
-from pants.option.global_options import (
-  DEFAULT_EXECUTION_OPTIONS,
-  ExecutionOptions,
-  GlobMatchErrorBehavior,
-)
+from pants.option.global_options import (DEFAULT_EXECUTION_OPTIONS, ExecutionOptions,
+                                         GlobMatchErrorBehavior)
+from pants.scm.subsystems.changed import rules as changed_rules
 
 
 logger = logging.getLogger(__name__)
@@ -329,6 +328,10 @@ class EngineInitializer:
 
     build_root = build_root or get_buildroot()
     build_configuration = build_configuration or BuildConfigInitializer.get(options_bootstrapper)
+
+    query_rules_memoized = query_rules()
+    build_configuration.register_rules(query_rules_memoized)
+
     bootstrap_options = options_bootstrapper.bootstrap_options.for_global_scope()
 
     build_file_aliases = build_configuration.registered_aliases()
@@ -390,6 +393,8 @@ class EngineInitializer:
       create_graph_rules(address_mapper) +
       create_options_parsing_rules() +
       structs_rules() +
+      changed_rules() +
+      query_rules_memoized +
       rules
     )
 
