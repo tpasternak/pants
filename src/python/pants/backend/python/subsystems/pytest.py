@@ -33,6 +33,9 @@ class PyTest(Subsystem):
     # TODO(6282): once we can upgrade Pytest to 4.2.1+, we can remove the more-itertools requirement
     return (
       "more-itertools<6.0.0 ; python_version<'3'",
+      # TODO: Having this requirement constraint is implicitly assumed in a lot of python test
+      # targets in our repo. It's not clear if this is the correct fix!
+      "pytest-mock==1.10.0 ; python_version=='3'",
       opts.requirements,
       opts.timeout_requirements,
       opts.cov_requirements,
