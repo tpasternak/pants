@@ -78,9 +78,13 @@ impl Core {
     remote_store_servers.shuffle(&mut rand::thread_rng());
 
     let runtime = Resettable::new(|| {
-      Arc::new(RwLock::new(Runtime::new().unwrap_or_else(|e| {
-        panic!("Could not initialize Runtime: {:?}", e)
-      })))
+      let cpu_count = num_cpus::get();
+      let runtime = tokio::runtime::Builder::new()
+        .core_threads(2 * cpu_count)
+        .blocking_threads(200)
+        .build()
+        .unwrap_or_else(|e| panic!("Could not initialize Runtime: {:?}", e));
+      Arc::new(RwLock::new(runtime))
     });
     // We re-use these certs for both the execution and store service; they're generally tied together.
     let root_ca_certs = if let Some(path) = remote_root_ca_certs_path {
