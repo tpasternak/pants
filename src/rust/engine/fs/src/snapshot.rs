@@ -258,7 +258,7 @@ impl Snapshot {
 
     let directories = dir_digests
       .into_iter()
-      .map(|digest| store.load_existing_directory(digest))
+      .map(|digest| store.load_existing_directory(digest).map(|(directory, _metadata)| directory))
       .collect::<Vec<_>>();
     join_all(directories)
       .and_then(move |mut directories| {
@@ -382,6 +382,7 @@ impl Snapshot {
     let store2 = store.clone();
     store
       .load_existing_directory(dir_digest)
+      .map(|(directory, _metadata)| directory)
       .and_then(move |mut directory| {
         // TODO: Extract "lookup in both lists" into a helper.
         let position = if let Ok(dir_pos) = directory
@@ -464,6 +465,7 @@ impl Snapshot {
     let store2 = store.clone();
     store
       .load_existing_directory(dir_digest)
+      .map(|(directory, _metadata)| directory)
       .and_then(move |mut directory| {
         let dir_pos = directory
           .get_directories()
@@ -647,9 +649,11 @@ impl Snapshot {
     store: Store,
     digest: Digest,
   ) -> impl Future<Item = bazel_protos::remote_execution::Directory, Error = String> {
-    store
-      .load_directory(digest)
-      .and_then(move |maybe_dir| maybe_dir.ok_or_else(|| format!("{:?} was not known", digest)))
+    store.load_directory(digest).and_then(move |maybe_dir| {
+      maybe_dir
+        .map(|(dir, _metadata)| dir)
+        .ok_or_else(|| format!("{:?} was not known", digest))
+    })
   }
 
   ///
@@ -1060,7 +1064,12 @@ mod tests {
         .wait()
         .unwrap()
     };
-    let merged_root_directory = store.load_directory(merged.digest).wait().unwrap().unwrap();
+    let merged_root_directory = store
+      .load_directory(merged.digest)
+      .wait()
+      .unwrap()
+      .unwrap()
+      .0;
 
     assert_eq!(merged.path_stats, vec![dir, file1, file2]);
     assert_eq!(merged_root_directory.files.len(), 0);
@@ -1073,7 +1082,8 @@ mod tests {
       .load_directory(merged_child_dirnode_digest.unwrap())
       .wait()
       .unwrap()
-      .unwrap();
+      .unwrap()
+      .0;
 
     assert_eq!(merged_child_dirnode.name, common_dir_name);
     assert_eq!(
