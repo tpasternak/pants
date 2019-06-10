@@ -479,7 +479,10 @@ impl Store {
   /// Download a directory from Remote ByteStore recursively to the local one. Called only with the
   /// Digest of a Directory.
   ///
-  pub fn ensure_local_has_recursive_directory(&self, dir_digest: Digest) -> BoxFuture<(), String> {
+  pub fn ensure_local_has_recursive_directory(
+    &self,
+    dir_digest: Digest,
+  ) -> BoxFuture<Vec<(EntryType, Digest, LoadMetadata)>, String> {
     let store = self.clone();
     self
       .load_directory(dir_digest)
@@ -489,28 +492,73 @@ impl Store {
           .ok_or_else(|| format!("Could not read dir with digest {:?}", dir_digest))
       })
       .and_then(move |directory| {
-        // Traverse the files within directory
-        let file_futures = directory
-          .get_files()
-          .iter()
-          .map(|file_node| {
-            let file_digest = try_future!(file_node.get_digest().into());
-            store.load_bytes_with(EntryType::File, file_digest, |_| Ok(()), |_| Ok(()))
-          })
-          .collect::<Vec<_>>();
+        if directory.get_transitive_file_digests().len()
+          + directory.get_transitive_directory_digests().len()
+          > 0
+        {
+          let store2 = store.clone();
+          let futures: Vec<_> = directory
+            .get_transitive_file_digests()
+            .iter()
+            .map(move |digest| {
+              let digest: Result<Digest, String> = digest.into();
+              let digest = try_future!(digest);
+              store
+                .clone()
+                .load_file_bytes_with(digest, |_| ())
+                .and_then(move |opt| {
+                  opt
+                    .ok_or_else(|| format!("Missing digest {:?}", digest))
+                    .map(|((), metadata)| (EntryType::File, digest, metadata))
+                })
+                .to_boxed()
+            })
+            .chain(
+              directory
+                .get_transitive_directory_digests()
+                .iter()
+                .map(move |digest| {
+                  let digest: Result<Digest, String> = digest.into();
+                  let digest = try_future!(digest);
+                  store2
+                    .clone()
+                    .load_directory(digest)
+                    .and_then(move |opt| {
+                      opt
+                        .ok_or_else(|| format!("Missing digest {:?}", digest))
+                        .map(|(_, metadata)| (EntryType::Directory, digest, metadata))
+                    })
+                    .to_boxed()
+                }),
+            )
+            .collect();
+          future::join_all(futures).to_boxed()
+        } else {
+          // Traverse the files within directory
+          let file_futures = directory
+            .get_files()
+            .iter()
+            .map(|file_node| {
+              let file_digest = try_future!(file_node.get_digest().into());
+              store.load_bytes_with(EntryType::File, file_digest, |_| Ok(()), |_| Ok(()))
+            })
+            .collect::<Vec<_>>();
 
-        // Recursively call with sub-directories
-        let directory_futures = directory
-          .get_directories()
-          .iter()
-          .map(move |child_dir| {
-            let child_digest = try_future!(child_dir.get_digest().into());
-            store.ensure_local_has_recursive_directory(child_digest)
-          })
-          .collect::<Vec<_>>();
-        future::join_all(file_futures)
-          .join(future::join_all(directory_futures))
-          .map(|_| ())
+          // Recursively call with sub-directories
+          let directory_futures = directory
+            .get_directories()
+            .iter()
+            .map(move |child_dir| {
+              let child_digest = try_future!(child_dir.get_digest().into());
+              store.ensure_local_has_recursive_directory(child_digest)
+            })
+            .collect::<Vec<_>>();
+          future::join_all(file_futures)
+            .join(future::join_all(directory_futures))
+            // TODO: Fill in metadata.
+            .map(|_| vec![])
+            .to_boxed()
+        }
       })
       .to_boxed()
   }
@@ -608,8 +656,13 @@ impl Store {
     }
 
     let store = self.clone();
+    let store2 = store.clone();
     self
-      .load_directory(digest)
+      .ensure_local_has_recursive_directory(digest)
+      .and_then(move |_| {
+        // TODO: Don't throw away metadata
+        store2.load_directory(digest)
+      })
       .and_then(move |directory_and_metadata_opt| {
         let (directory, metadata) = directory_and_metadata_opt
           .ok_or_else(|| format!("Directory with digest {:?} not found", digest))?;
