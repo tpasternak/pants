@@ -205,6 +205,7 @@ impl WrappedNode for Select {
                   .map(|val| lift_digest(&val).map_err(|str| throw(&str)))
                   .collect();
               fs::Snapshot::merge_directories(core.store(), try_future!(digests))
+                .map(|info| info.digest)
                 .map_err(|err| throw(&err))
                 .map(move |digest| Snapshot::store_directory(&core, &digest))
                 .to_boxed()

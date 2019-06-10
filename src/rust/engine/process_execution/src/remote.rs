@@ -731,6 +731,7 @@ impl CommandRunner {
         ))
       })
     })
+    .map(|digest_info| digest_info.digest)
     .to_boxed()
   }
 }

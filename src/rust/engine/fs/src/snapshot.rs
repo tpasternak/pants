@@ -38,6 +38,7 @@ struct TransitiveDirectoryNodeInfo {
   transitive_file_digests: Arc<Mutex<BTreeSet<bazel_protos::remote_execution::Digest>>>,
 }
 
+#[derive(Debug)]
 pub struct TransitiveDirectoryDigestInfo {
   pub digest: Digest,
   transitive_directory_digests: Arc<Mutex<BTreeSet<bazel_protos::remote_execution::Digest>>>,
@@ -889,8 +890,8 @@ mod tests {
     .wait();
 
     assert_eq!(
-      result,
-      Ok(TestDirectory::containing_roland_and_treats().digest())
+      result.unwrap().digest,
+      TestDirectory::containing_roland_and_treats().digest()
     );
   }
 
@@ -950,8 +951,8 @@ mod tests {
     .wait();
 
     assert_eq!(
-      result,
-      Ok(TestDirectory::containing_roland_and_treats().digest())
+      result.unwrap().digest,
+      TestDirectory::containing_roland_and_treats().digest()
     );
   }
 
