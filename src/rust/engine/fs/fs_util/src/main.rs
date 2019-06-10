@@ -163,7 +163,14 @@ to this directory.",
               .arg(Arg::with_name("size_bytes").required(true).takes_value(
                 true,
               )),
-          ),
+          )
+        .subcommand(
+          SubCommand::with_name("merge").about("Merge two directory protos")
+              .arg(Arg::with_name("fingerprint1").required(true).takes_value(true))
+              .arg(Arg::with_name("size_bytes1").required(true).takes_value(true))
+              .arg(Arg::with_name("fingerprint2").required(true).takes_value(true))
+              .arg(Arg::with_name("size_bytes2").required(true).takes_value(true))
+        ),
       )
       .subcommand(
         SubCommand::with_name("cat")
@@ -510,6 +517,29 @@ fn execute(top_match: &clap::ArgMatches<'_>) -> Result<(), ExitError> {
             ExitCode::NotFound,
           )),
         }
+      }
+      ("merge", Some(args)) => {
+        let fingerprint1 = Fingerprint::from_hex_string(args.value_of("fingerprint1").unwrap())?;
+        let size_bytes1 = args
+          .value_of("size_bytes1")
+          .unwrap()
+          .parse::<usize>()
+          .expect("size_bytes1 must be a non-negative number");
+        let digest1 = Digest(fingerprint1, size_bytes1);
+
+        let fingerprint2 = Fingerprint::from_hex_string(args.value_of("fingerprint2").unwrap())?;
+        let size_bytes2 = args
+          .value_of("size_bytes2")
+          .unwrap()
+          .parse::<usize>()
+          .expect("size_bytes2 must be a non-negative number");
+        let digest2 = Digest(fingerprint2, size_bytes2);
+
+        let merged_digest = runtime
+          .block_on(Snapshot::merge_directories(store, vec![digest1, digest2]))
+          .unwrap();
+        println!("{} {}", merged_digest.0, merged_digest.1);
+        Ok(())
       }
       (_, _) => unimplemented!(),
     },
