@@ -38,10 +38,20 @@ struct TransitiveDirectoryNodeInfo {
   transitive_file_digests: Arc<Mutex<BTreeSet<bazel_protos::remote_execution::Digest>>>,
 }
 
-struct TransitiveDirectoryDigestInfo {
-  digest: Digest,
+pub struct TransitiveDirectoryDigestInfo {
+  pub digest: Digest,
   transitive_directory_digests: Arc<Mutex<BTreeSet<bazel_protos::remote_execution::Digest>>>,
   transitive_file_digests: Arc<Mutex<BTreeSet<bazel_protos::remote_execution::Digest>>>,
+}
+
+impl TransitiveDirectoryDigestInfo {
+  fn empty() -> Self {
+    TransitiveDirectoryDigestInfo {
+      digest: EMPTY_DIGEST,
+      transitive_directory_digests: Arc::new(Mutex::new(BTreeSet::new())),
+      transitive_file_digests: Arc::new(Mutex::new(BTreeSet::new())),
+    }
+  }
 }
 
 impl Snapshot {
@@ -228,25 +238,11 @@ impl Snapshot {
     join_all(dir_futures)
       .join(join_all(file_futures))
       .and_then(move |(transitive_directory_node_infos, files)| {
-        let mut dir_nodes = Vec::new();
-        let mut transitive_directory_digests = BTreeSet::new();
-        let mut transitive_file_digests = BTreeSet::new();
-        for file in &files {
-          transitive_file_digests.insert(file.get_digest().clone());
-        }
-        for transitive_directory_info in transitive_directory_node_infos {
-          dir_nodes.push(transitive_directory_info.dir_node);
-          transitive_file_digests.append(
-            &mut Arc::try_unwrap(transitive_directory_info.transitive_file_digests)
-              .unwrap()
-              .into_inner(),
+        let (dir_nodes, transitive_directory_digests, transitive_file_digests) =
+          Self::merge_transitive_directory_node_infos(
+            Some(&files),
+            transitive_directory_node_infos,
           );
-          transitive_directory_digests.append(
-            &mut Arc::try_unwrap(transitive_directory_info.transitive_directory_digests)
-              .unwrap()
-              .into_inner(),
-          );
-        }
 
         let mut directory = bazel_protos::remote_execution::Directory::new();
         directory.set_directories(protobuf::RepeatedField::from_vec(dir_nodes));
@@ -267,6 +263,42 @@ impl Snapshot {
           })
       })
       .to_boxed()
+  }
+
+  fn merge_transitive_directory_node_infos(
+    files: Option<&[bazel_protos::remote_execution::FileNode]>,
+    transitive_directory_node_infos: Vec<TransitiveDirectoryNodeInfo>,
+  ) -> (
+    Vec<bazel_protos::remote_execution::DirectoryNode>,
+    BTreeSet<bazel_protos::remote_execution::Digest>,
+    BTreeSet<bazel_protos::remote_execution::Digest>,
+  ) {
+    let mut dir_nodes = Vec::new();
+    let mut transitive_directory_digests = BTreeSet::new();
+    let mut transitive_file_digests = BTreeSet::new();
+    if let Some(files) = files {
+      for file in files {
+        transitive_file_digests.insert(file.get_digest().clone());
+      }
+    }
+    for transitive_directory_info in transitive_directory_node_infos {
+      dir_nodes.push(transitive_directory_info.dir_node);
+      transitive_file_digests.append(
+        &mut Arc::try_unwrap(transitive_directory_info.transitive_file_digests)
+          .unwrap()
+          .into_inner(),
+      );
+      transitive_directory_digests.append(
+        &mut Arc::try_unwrap(transitive_directory_info.transitive_directory_digests)
+          .unwrap()
+          .into_inner(),
+      );
+    }
+    (
+      dir_nodes,
+      transitive_directory_digests,
+      transitive_file_digests,
+    )
   }
 
   ///
@@ -304,7 +336,7 @@ impl Snapshot {
     // Recursively merge the Digests in the Snapshots.
     Self::merge_directories(store, snapshots.iter().map(|s| s.digest).collect())
       .map(move |root_digest| Snapshot {
-        digest: root_digest,
+        digest: root_digest.digest,
         path_stats: path_stats,
       })
       .to_boxed()
@@ -317,12 +349,12 @@ impl Snapshot {
   /// If a file is present with the same name and contents multiple times, it will appear once.
   /// If a file is present with the same name, but different contents, an error will be returned.
   ///
-  pub fn merge_directories(store: Store, dir_digests: Vec<Digest>) -> BoxFuture<Digest, String> {
+  pub fn merge_directories(
+    store: Store,
+    dir_digests: Vec<Digest>,
+  ) -> BoxFuture<TransitiveDirectoryDigestInfo, String> {
     if dir_digests.is_empty() {
-      return future::ok(EMPTY_DIGEST).to_boxed();
-    } else if dir_digests.len() == 1 {
-      let mut dir_digests = dir_digests;
-      return future::ok(dir_digests.pop().unwrap()).to_boxed();
+      return future::ok(TransitiveDirectoryDigestInfo::empty()).to_boxed();
     }
 
     let directories = dir_digests
@@ -352,6 +384,19 @@ impl Snapshot {
         out_dir.set_files(protobuf::RepeatedField::from_vec(
           file_nodes.into_iter().dedup().collect(),
         ));
+
+        out_dir.set_transitive_file_digests(protobuf::RepeatedField::from_vec(
+          Iterator::flatten(
+            directories
+              .iter_mut()
+              .map(|directory| directory.take_transitive_file_digests().into_iter()),
+          )
+          .sorted()
+          .into_iter()
+          .dedup()
+          .collect(),
+        ));
+
         let unique_count = out_dir
           .get_files()
           .iter()
@@ -385,6 +430,7 @@ impl Snapshot {
           directories_to_merge.sort_by(|a, b| a.name.cmp(&b.name));
           directories_to_merge
         };
+
         let store2 = store.clone();
         join_all(
           sorted_child_directories
@@ -398,18 +444,39 @@ impl Snapshot {
                 .collect::<Result<Vec<_>, String>>();
               future::done(digests_result)
                 .and_then(move |digests| Self::merge_directories(store2.clone(), digests))
-                .map(move |merged_digest| {
+                .map(move |merged_digest_infos| {
                   let mut child_dir = bazel_protos::remote_execution::DirectoryNode::new();
                   child_dir.set_name(child_name);
-                  child_dir.set_digest((&merged_digest).into());
-                  child_dir
+                  let digest_for_proto: bazel_protos::remote_execution::Digest =
+                    (&merged_digest_infos.digest).into();
+                  child_dir.set_digest(digest_for_proto.clone());
+                  merged_digest_infos
+                    .transitive_directory_digests
+                    .lock()
+                    .insert(digest_for_proto);
+                  TransitiveDirectoryNodeInfo {
+                    dir_node: child_dir,
+                    transitive_directory_digests: merged_digest_infos.transitive_directory_digests,
+                    transitive_file_digests: merged_digest_infos.transitive_file_digests,
+                  }
                 })
             })
             .collect::<Vec<_>>(),
         )
-        .and_then(move |child_directories| {
-          out_dir.set_directories(protobuf::RepeatedField::from_vec(child_directories));
-          store.record_directory(&out_dir, true)
+        .and_then(move |transitive_directory_node_infos| {
+          let (dir_nodes, transitive_directory_digests, transitive_file_digests) =
+            Self::merge_transitive_directory_node_infos(None, transitive_directory_node_infos);
+          out_dir.set_directories(protobuf::RepeatedField::from_vec(dir_nodes));
+          out_dir.set_transitive_directory_digests(protobuf::RepeatedField::from_vec(
+            transitive_directory_digests.iter().cloned().collect(),
+          ));
+          store
+            .record_directory(&out_dir, true)
+            .map(|digest| TransitiveDirectoryDigestInfo {
+              digest,
+              transitive_directory_digests: Arc::new(Mutex::new(transitive_directory_digests)),
+              transitive_file_digests: Arc::new(Mutex::new(transitive_file_digests)),
+            })
         })
         .to_boxed()
       })

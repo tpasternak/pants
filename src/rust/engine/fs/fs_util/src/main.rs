@@ -537,7 +537,8 @@ fn execute(top_match: &clap::ArgMatches<'_>) -> Result<(), ExitError> {
 
         let merged_digest = runtime
           .block_on(Snapshot::merge_directories(store, vec![digest1, digest2]))
-          .unwrap();
+          .unwrap()
+          .digest;
         println!("{} {}", merged_digest.0, merged_digest.1);
         Ok(())
       }
