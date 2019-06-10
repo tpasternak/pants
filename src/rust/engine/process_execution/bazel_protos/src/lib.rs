@@ -15,3 +15,5 @@ pub use crate::gen_for_tower::*;
 mod conversions;
 mod verification;
 pub use crate::verification::verify_directory_canonical;
+
+mod traits;
