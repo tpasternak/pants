@@ -781,6 +781,7 @@ pub extern "C" fn merge_directories(
 
   with_scheduler(scheduler_ptr, |scheduler| {
     fs::Snapshot::merge_directories(scheduler.core.store(), digests)
+      .map(|info| info.digest)
       .wait()
       .map(|dir| nodes::Snapshot::store_directory(&scheduler.core, &dir))
       .into()

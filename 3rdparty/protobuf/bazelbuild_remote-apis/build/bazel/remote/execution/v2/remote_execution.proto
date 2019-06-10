@@ -556,6 +556,10 @@ message Directory {
 
   // The subdirectories in the directory.
   repeated DirectoryNode directories = 2;
+
+  // These fields are unofficial hacks to optimise file fetch time.
+  repeated Digest transitive_directory_digests = 6;
+  repeated Digest transitive_file_digests = 7;
 }
 
 // A `FileNode` represents a single file and associated metadata.
