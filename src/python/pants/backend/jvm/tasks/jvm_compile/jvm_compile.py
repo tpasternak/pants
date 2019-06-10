@@ -533,7 +533,7 @@ class JvmCompile(CompilerOptionSetsMixin, NailgunTaskBase):
       ctx.classes_dir = ClasspathEntry(ctx.classes_dir.path, directory_digest)
 
   def _compile_vts(self, vts, ctx, upstream_analysis, dependency_classpath, progress_message, settings,
-                   compiler_option_sets, zinc_file_manager, counter):
+                   compiler_option_sets, zinc_file_manager, counter, hermetic=False):
     """Compiles sources for the given vts into the given output dir.
 
     :param vts: VersionedTargetSet with one entry for the target.
@@ -573,7 +573,7 @@ class JvmCompile(CompilerOptionSetsMixin, NailgunTaskBase):
             zinc_file_manager,
             self._get_plugin_map('javac', Java.global_instance(), ctx.target),
             self._get_plugin_map('scalac', ScalaPlatform.global_instance(), ctx.target),
-          )
+            hermetic=hermetic)
           self._capture_logs(compile_workunit, ctx.log_dir)
           return directory_digest
         except TaskError:
@@ -924,19 +924,22 @@ class JvmCompile(CompilerOptionSetsMixin, NailgunTaskBase):
     def _rehome(self, l):
       return os.path.join(self._home, self._unroot_lib_path(l))
 
-  def _get_jvm_distribution(self):
+  def _get_jvm_distribution(self, hermetic=False):
     # TODO We may want to use different jvm distributions depending on what
     # java version the target expects to be compiled against.
     # See: https://github.com/pantsbuild/pants/issues/6416 for covering using
     #      different jdks in remote builds.
     local_distribution = self._local_jvm_distribution()
-    return self.execution_strategy_enum.resolve_for_enum_variant({
-      self.SUBPROCESS: lambda: local_distribution,
-      self.NAILGUN: lambda: local_distribution,
-      self.HERMETIC: lambda: self._HermeticDistribution('.jdk', local_distribution),
-    })()
+    if hermetic:
+      return self._HermeticDistribution('.jdk', local_distribution)
+    else:
+      return self.execution_strategy_enum.resolve_for_enum_variant({
+        self.SUBPROCESS: lambda: local_distribution,
+        self.NAILGUN: lambda: local_distribution,
+        self.HERMETIC: lambda: self._HermeticDistribution('.jdk', local_distribution),
+      })()
 
-  def _default_work_for_vts(self, vts, ctx, input_classpath_product_key, counter, all_compile_contexts, output_classpath_product):
+  def _default_work_for_vts(self, vts, ctx, input_classpath_product_key, counter, all_compile_contexts, output_classpath_product, hermetic=False):
     progress_message = ctx.target.address.spec
 
     # Double check the cache before beginning compilation
@@ -972,7 +975,8 @@ class JvmCompile(CompilerOptionSetsMixin, NailgunTaskBase):
                           tgt.platform,
                           compiler_option_sets,
                           zinc_file_manager,
-                          counter)
+                          counter,
+                          hermetic=hermetic)
 
       # Store the produced Digest (if any).
       self._set_directory_digest_for_compile_context(ctx, directory_digest)

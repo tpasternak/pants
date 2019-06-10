@@ -446,7 +446,7 @@ class RscCompile(ZincCompile, MirroredTargetOptionMixin):
         if rsc_cc_tgt.workflow is not None:
           yield self._zinc_key_for_target(tgt, rsc_cc_tgt.workflow)
 
-    def make_zinc_job(target, input_product_key, output_products, dep_keys):
+    def make_zinc_job(target, input_product_key, output_products, dep_keys, hermetic=False):
       return Job(
         key=self._zinc_key_for_target(target, rsc_compile_context.workflow),
         fn=functools.partial(
@@ -456,7 +456,8 @@ class RscCompile(ZincCompile, MirroredTargetOptionMixin):
           input_product_key,
           counter,
           compile_contexts,
-          CompositeProductAdder(*output_products)),
+          CompositeProductAdder(*output_products),
+          hermetic=hermetic),
         dependencies=list(dep_keys),
         size=self._size_estimator(zinc_compile_context.sources),
         # If compilation and analysis work succeeds, validate the vts.
@@ -487,7 +488,8 @@ class RscCompile(ZincCompile, MirroredTargetOptionMixin):
             runtime_classpath_product,
             self.context.products.get_data('rsc_mixed_compile_classpath'),
           ],
-          dep_keys=list(all_zinc_rsc_invalid_dep_keys(invalid_dependencies)))),
+          dep_keys=list(all_zinc_rsc_invalid_dep_keys(invalid_dependencies)),
+          hermetic=False)),
       # NB: javac can't read rsc output yet, so we need it to depend strictly on zinc
       # compilations of dependencies.
       'zinc-java': lambda: zinc_jobs.append(
@@ -498,7 +500,8 @@ class RscCompile(ZincCompile, MirroredTargetOptionMixin):
             runtime_classpath_product,
             self.context.products.get_data('rsc_mixed_compile_classpath'),
           ],
-          dep_keys=list(only_zinc_invalid_dep_keys(invalid_dependencies)))),
+          dep_keys=list(only_zinc_invalid_dep_keys(invalid_dependencies)),
+          hermetic=False)),
       'rsc-and-zinc': lambda: zinc_jobs.append(
         # NB: rsc-and-zinc jobs run zinc and depend on both rsc and zinc compile outputs.
         make_zinc_job(
@@ -511,7 +514,7 @@ class RscCompile(ZincCompile, MirroredTargetOptionMixin):
             runtime_classpath_product,
           ],
           dep_keys=list(all_zinc_rsc_invalid_dep_keys(invalid_dependencies)) + batched_deps,
-        )),
+          hermetic=True)),
     })()
 
     return rsc_jobs + zinc_jobs
@@ -659,6 +662,21 @@ class RscCompile(ZincCompile, MirroredTargetOptionMixin):
     )
     if result != 0:
       raise TaskError('Running {} failed'.format(tool_name))
+
+    def relative_to_exec_root(path):
+      return fast_relpath(path, get_buildroot())
+
+    # Ensure the output is available to hermetic compiles.
+    output_path = ctx.rsc_jar_file.path
+    output_snapshot, = self.context._scheduler.capture_snapshots(
+      tuple([PathGlobsAndRoot(
+        PathGlobs([relative_to_exec_root(output_path)]),
+        text_type(get_buildroot()))]))
+    output_digest = output_snapshot.directory_digest
+    output_digest.dump(output_path)
+
+    ctx.rsc_jar_file = ClasspathEntry(output_path, output_digest)
+
     runjava_workunit = None
     for c in parent_workunit.children:
       if c.name is tool_name:

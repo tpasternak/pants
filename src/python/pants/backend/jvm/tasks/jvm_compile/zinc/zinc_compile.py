@@ -28,7 +28,7 @@ from pants.base.build_environment import get_buildroot
 from pants.base.exceptions import TaskError
 from pants.base.hash_utils import hash_file
 from pants.base.workunit import WorkUnitLabel
-from pants.engine.fs import DirectoryToMaterialize
+from pants.engine.fs import DirectoryToMaterialize, PathGlobs, PathGlobsAndRoot
 from pants.engine.isolated_process import ExecuteProcessRequest, ExecuteProcessResult
 from pants.util.contextutil import open_zip
 from pants.util.dirutil import fast_relpath
@@ -66,8 +66,8 @@ class BaseZincCompile(JvmCompile):
     while arg_index < len(args):
       arg_index += validate(arg_index)
 
-  def _get_zinc_arguments(self, settings):
-    distribution = self._get_jvm_distribution()
+  def _get_zinc_arguments(self, settings, hermetic=False):
+    distribution = self._get_jvm_distribution(hermetic=hermetic)
     return self._format_zinc_arguments(settings, distribution)
 
   @staticmethod
@@ -260,7 +260,7 @@ class BaseZincCompile(JvmCompile):
 
   def compile(self, ctx, args, dependency_classpath, upstream_analysis,
               settings, compiler_option_sets, zinc_file_manager,
-              javac_plugin_map, scalac_plugin_map):
+              javac_plugin_map, scalac_plugin_map, hermetic=False):
     absolute_classpath = (ctx.classes_dir.path,) + tuple(ce.path for ce in dependency_classpath)
 
     if self.get_options().capture_classpath:
@@ -322,7 +322,7 @@ class BaseZincCompile(JvmCompile):
                         ) for k, v in upstream_analysis.items())])
 
     zinc_args.extend(args)
-    zinc_args.extend(self._get_zinc_arguments(settings))
+    zinc_args.extend(self._get_zinc_arguments(settings, hermetic=hermetic))
     zinc_args.append('-transactional')
 
     compiler_option_sets_args = self.get_merged_args_for_compiler_option_sets(compiler_option_sets)
@@ -351,13 +351,18 @@ class BaseZincCompile(JvmCompile):
     self.log_zinc_file(ctx.analysis_file)
     self.write_argsfiles(ctx, zinc_args, ctx.sources)
 
-    return self.execution_strategy_enum.resolve_for_enum_variant({
-      self.HERMETIC: lambda: self._compile_hermetic(
+    def do_hermetic():
+      return self._compile_hermetic(
         jvm_options, ctx, classes_dir, jar_file, compiler_bridge_classpath_entry,
-        dependency_classpath, scalac_classpath_entries),
-      self.SUBPROCESS: lambda: self._compile_nonhermetic(jvm_options, ctx, classes_dir),
-      self.NAILGUN: lambda: self._compile_nonhermetic(jvm_options, ctx, classes_dir),
-    })()
+        dependency_classpath, scalac_classpath_entries)
+    if hermetic:
+      return do_hermetic()
+    else:
+      return self.execution_strategy_enum.resolve_for_enum_variant({
+        self.HERMETIC: do_hermetic,
+        self.SUBPROCESS: lambda: self._compile_nonhermetic(jvm_options, ctx, classes_dir),
+        self.NAILGUN: lambda: self._compile_nonhermetic(jvm_options, ctx, classes_dir),
+      })()
 
   class ZincCompileError(TaskError):
     """An exception type specifically to signal a failed zinc execution."""
@@ -372,13 +377,32 @@ class BaseZincCompile(JvmCompile):
                              dist=self._zinc.dist)
     if exit_code != 0:
       raise self.ZincCompileError('Zinc compile failed.', exit_code=exit_code)
+
+    def relative_to_exec_root(path):
+      return fast_relpath(path, get_buildroot())
+
+    # Ensure the output is available to hermetic compiles.
+    output_path = ctx.jar_file.path if self.get_options().use_classpath_jars else ctx.classes_dir
+    output_snapshot, = self.context._scheduler.capture_snapshots(
+      tuple([PathGlobsAndRoot(
+        PathGlobs([relative_to_exec_root(output_path)]),
+        text_type(get_buildroot()))]))
+    output_digest = output_snapshot.directory_digest
+    output_digest.dump(output_path)
+
+    self._set_directory_digest_for_compile_context(ctx, output_digest)
+
     self.context._scheduler.materialize_directories((
       DirectoryToMaterialize(text_type(classes_directory), self.extra_resources_digest(ctx)),
     ))
 
+    return output_digest
+
   def _compile_hermetic(self, jvm_options, ctx, classes_dir, jar_file,
                         compiler_bridge_classpath_entry, dependency_classpath,
                         scalac_classpath_entries):
+    jvm_options = []
+
     zinc_relpath = fast_relpath(self._zinc.zinc, get_buildroot())
 
     snapshots = [
@@ -495,6 +519,11 @@ class BaseZincCompile(JvmCompile):
 
     output_digest = self.merge_output_digests(ctx, [r.output_directory_digest for r in results])
 
+    self.context._scheduler.materialize_directories(
+      tuple([DirectoryToMaterialize(
+        text_type(get_buildroot()),
+        output_digest)]))
+
     # TODO: This should probably return a ClasspathEntry rather than a Digest
     return output_digest
 
@@ -503,7 +532,7 @@ class BaseZincCompile(JvmCompile):
       return directory_digests[0]
     if not self.get_options().use_classpath_jars:
       return self.context._scheduler.merge_directories(directory_digests)
-    
+
     # Rename all jars (so that they don't collide) and merge them into the same digest.
     # TODO: Make this API parallel.
     jar_file = fast_relpath(ctx.jar_file.path, get_buildroot())
