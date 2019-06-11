@@ -43,6 +43,7 @@ from pants.util.dirutil import (fast_relpath, read_file, safe_delete, safe_file_
                                 safe_rmtree)
 from pants.util.fileutil import create_size_estimators
 from pants.util.memo import memoized_method, memoized_property
+from pants.util.objects import enum
 from pants.util.strutil import ensure_text
 
 
@@ -61,6 +62,8 @@ class JvmCompile(CompilerOptionSetsMixin, NailgunTaskBase):
   """
 
   size_estimators = create_size_estimators()
+
+  class JobType(enum(['non-hermetic', 'hermetic'])): pass
 
   @classmethod
   def size_estimator_by_name(cls, estimation_strategy_name):
@@ -104,6 +107,8 @@ class JvmCompile(CompilerOptionSetsMixin, NailgunTaskBase):
              help='The number of concurrent workers to use when '
                   'compiling with {task}. Defaults to the '
                   'current machine\'s CPU count.'.format(task=cls._name))
+    register('--hermetic-worker-count', advanced=True, type=int, default=0,
+             help='???')
 
     register('--size-estimator', advanced=True,
              choices=list(cls.size_estimators.keys()), default='filesize',
@@ -498,7 +503,9 @@ class JvmCompile(CompilerOptionSetsMixin, NailgunTaskBase):
 
     exec_graph = ExecutionGraph(jobs, self.get_options().print_exception_stacktrace)
     try:
-      exec_graph.execute(worker_pool, self.context.log)
+      exec_graph.execute(pool=worker_pool,
+                         hermetic_worker_count=self.get_options().hermetic_worker_count,
+                         log=self.context.log)
     except ExecutionFailure as e:
       raise TaskError("Compilation failure: {}".format(e))
 

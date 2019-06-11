@@ -436,6 +436,7 @@ class RscCompile(ZincCompile, MirroredTargetOptionMixin):
         # The rsc jobs depend on other rsc jobs, and on zinc jobs for targets that are not
         # processed by rsc.
         dependencies=list(all_zinc_rsc_invalid_dep_keys(dep_targets)),
+        pool_type=self.JobType.non_hermetic,
         size=self._size_estimator(rsc_compile_context.sources),
         on_success=ivts.update,
       )
@@ -459,6 +460,7 @@ class RscCompile(ZincCompile, MirroredTargetOptionMixin):
           CompositeProductAdder(*output_products),
           hermetic=hermetic),
         dependencies=list(dep_keys),
+        pool_type=(self.JobType.hermetic if hermetic else self.JobType.non_hermetic),
         size=self._size_estimator(zinc_compile_context.sources),
         # If compilation and analysis work succeeds, validate the vts.
         # Otherwise, fail it.

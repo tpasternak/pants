@@ -22,7 +22,7 @@ class Job(object):
   keys of its dependent jobs.
   """
 
-  def __init__(self, key, fn, dependencies, size=0, on_success=None, on_failure=None):
+  def __init__(self, key, fn, dependencies, pool_type=None, size=0, on_success=None, on_failure=None):
     """
 
     :param key: Key used to reference and look up jobs
@@ -36,6 +36,7 @@ class Job(object):
     self.key = key
     self.fn = fn
     self.dependencies = dependencies
+    self.pool_type = pool_type
     self.size = size
     self.on_success = on_success
     self.on_failure = on_failure
@@ -233,7 +234,7 @@ class ExecutionGraph(object):
 
     return job_priority
 
-  def execute(self, pool, log):
+  def execute(self, pool, hermetic_worker_count, log):
     """Runs scheduled work, ensuring all dependencies for each element are done before execution.
 
     :param pool: A WorkerPool to run jobs on
@@ -262,6 +263,7 @@ class ExecutionGraph(object):
 
     heap = []
     jobs_in_flight = ThreadSafeCounter()
+    hermetic_jobs_in_flight = ThreadSafeCounter()
 
     def put_jobs_into_heap(job_keys):
       for job_key in job_keys:
@@ -270,7 +272,7 @@ class ExecutionGraph(object):
         heappush(heap, (-self._job_priority[job_key], job_key))
 
     def try_to_submit_jobs_from_heap():
-      def worker(worker_key, work):
+      def worker(counter, worker_key, work):
         status_table.mark_as(RUNNING, worker_key)
         try:
           work()
@@ -279,12 +281,36 @@ class ExecutionGraph(object):
           _, exc_value, exc_traceback = sys.exc_info()
           result = (worker_key, FAILED, (exc_value, traceback.format_tb(exc_traceback)))
         finished_queue.put(result)
-        jobs_in_flight.decrement()
+        counter.decrement()
 
-      while len(heap) > 0 and jobs_in_flight.get() < pool.num_workers:
+      popped_jobs = []
+
+      def nonhermetic_diff():
+        return pool.num_workers - jobs_in_flight.get()
+      def hermetic_diff():
+        return hermetic_worker_count - hermetic_jobs_in_flight.get()
+
+      while (len(heap) > 0) and ((nonhermetic_diff() > 0) or (hermetic_diff() > 0)):
         priority, job_key = heappop(heap)
-        jobs_in_flight.increment()
-        pool.submit_async_work(Work(worker, [(job_key, (self._jobs[job_key]))]))
+        job = self._jobs[job_key]
+
+        def handle_job(counter, diff_fn):
+          if diff_fn() > 0:
+            counter.increment()
+            pool.submit_async_work(Work(worker, [(counter, job_key, job)]))
+          else:
+            popped_jobs.append((priority, job_key))
+
+        if job.pool_type is None:
+          handle_job(jobs_in_flight, nonhermetic_diff)
+        else:
+          job.pool_type.resolve_for_enum_variant({
+            'non-hermetic': lambda: handle_job(jobs_in_flight, nonhermetic_diff),
+            'hermetic': lambda: handle_job(hermetic_jobs_in_flight, hermetic_diff),
+          })()
+
+      while len(popped_jobs) > 0:
+        heappush(heap, popped_jobs.pop())
 
     def submit_jobs(job_keys):
       put_jobs_into_heap(job_keys)
