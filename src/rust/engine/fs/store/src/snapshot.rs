@@ -10,6 +10,7 @@ use futures::Future;
 use hashing::{Digest, EMPTY_DIGEST};
 use indexmap::{self, IndexMap};
 use itertools::Itertools;
+use logging;
 use protobuf;
 use std::ffi::OsString;
 use std::fmt;
@@ -467,6 +468,7 @@ impl Snapshot {
   ///
   pub fn capture_snapshot_from_arbitrary_root<P: AsRef<Path> + Send + 'static>(
     store: Store,
+    executor: logging::Executor,
     root_path: P,
     path_globs: PathGlobs,
     digest_hint: Option<Digest>,
@@ -477,7 +479,7 @@ impl Snapshot {
     future::result(digest_hint.ok_or_else(|| "No digest hint provided.".to_string()))
       .and_then(move |digest| Snapshot::from_digest(store, digest))
       .or_else(|_| {
-        let posix_fs = Arc::new(try_future!(PosixFS::new(root_path, &[])));
+        let posix_fs = Arc::new(try_future!(PosixFS::new(root_path, &[], executor)));
 
         posix_fs
           .expand(path_globs)
@@ -605,9 +607,9 @@ mod tests {
     )
     .unwrap();
     let dir = tempfile::Builder::new().prefix("root").tempdir().unwrap();
-    let posix_fs = Arc::new(PosixFS::new(dir.path(), &[]).unwrap());
-    let file_saver = OneOffStoreFileByDigest::new(store.clone(), posix_fs.clone());
     let runtime = tokio::runtime::Runtime::new().unwrap();
+    let posix_fs = Arc::new(PosixFS::new(dir.path(), &[], logging::Executor::new()).unwrap());
+    let file_saver = OneOffStoreFileByDigest::new(store.clone(), posix_fs.clone());
     (store, dir, posix_fs, file_saver, runtime)
   }
 

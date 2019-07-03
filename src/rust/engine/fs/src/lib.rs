@@ -545,12 +545,17 @@ pub struct GlobWithSource {
 ///
 #[derive(Clone)]
 pub struct PosixFS {
+  executor: logging::Executor,
   root: Dir,
   ignore: Arc<GitignoreStyleExcludes>,
 }
 
 impl PosixFS {
-  pub fn new<P: AsRef<Path>>(root: P, ignore_patterns: &[String]) -> Result<PosixFS, String> {
+  pub fn new<P: AsRef<Path>>(
+    root: P,
+    ignore_patterns: &[String],
+    executor: logging::Executor,
+  ) -> Result<PosixFS, String> {
     let root: &Path = root.as_ref();
     let canonical_root = root
       .canonicalize()
@@ -575,6 +580,7 @@ impl PosixFS {
       )
     })?;
     Ok(PosixFS {
+      executor,
       root: canonical_root,
       ignore: ignore,
     })
@@ -701,7 +707,11 @@ impl VFS<io::Error> for Arc<PosixFS> {
   }
 
   fn scandir(&self, dir: Dir) -> BoxFuture<Arc<DirectoryListing>, io::Error> {
-    PosixFS::scandir(self, dir).map(Arc::new).to_boxed()
+    self
+      .executor
+      .spawn_in_new_task(PosixFS::scandir(self, dir))
+      .map(Arc::new)
+      .to_boxed()
   }
 
   fn is_ignored(&self, stat: &Stat) -> bool {
@@ -1168,7 +1178,7 @@ mod posixfs_test {
   }
 
   fn new_posixfs<P: AsRef<Path>>(dir: P) -> PosixFS {
-    PosixFS::new(dir.as_ref(), &[]).unwrap()
+    PosixFS::new(dir.as_ref(), &[], logging::Executor::new()).unwrap()
   }
 
   ///

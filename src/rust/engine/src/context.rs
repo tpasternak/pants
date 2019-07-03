@@ -7,8 +7,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::runtime::Runtime;
-
 use futures::Future;
 
 use crate::core::{Failure, TypeId};
@@ -21,7 +19,6 @@ use boxfuture::{BoxFuture, Boxable};
 use core::clone::Clone;
 use fs::{safe_create_dir_all_ioerror, PosixFS};
 use graph::{EntryId, Graph, NodeContext};
-use parking_lot::RwLock;
 use process_execution::{self, BoundedCommandRunner};
 use rand::seq::SliceRandom;
 use reqwest;
@@ -42,7 +39,7 @@ pub struct Core {
   pub tasks: Tasks,
   pub rule_graph: RuleGraph<Rule>,
   pub types: Types,
-  runtime: Arc<RwLock<Runtime>>,
+  pub executor: logging::Executor,
   store: Store,
   pub command_runner: BoundedCommandRunner,
   pub http_client: reqwest::r#async::Client,
@@ -78,10 +75,7 @@ impl Core {
     let mut remote_store_servers = remote_store_servers;
     remote_store_servers.shuffle(&mut rand::thread_rng());
 
-    let runtime =
-      Arc::new(RwLock::new(Runtime::new().unwrap_or_else(|e| {
-        panic!("Could not initialize Runtime: {:?}", e)
-      })));
+    let executor = logging::Executor::new();
     // We re-use these certs for both the execution and store service; they're generally tied together.
     let root_ca_certs = if let Some(path) = remote_root_ca_certs_path {
       Some(
@@ -143,6 +137,7 @@ impl Core {
       None => BoundedCommandRunner::new(
         Box::new(process_execution::local::CommandRunner::new(
           store.clone(),
+          executor.clone(),
           work_dir.clone(),
           process_execution_cleanup_local_dirs,
         )),
@@ -158,13 +153,13 @@ impl Core {
       tasks: tasks,
       rule_graph: rule_graph,
       types: types,
-      runtime: runtime,
+      executor: executor.clone(),
       store,
       command_runner,
       http_client,
       // TODO: Errors in initialization should definitely be exposed as python
       // exceptions, rather than as panics.
-      vfs: PosixFS::new(&build_root, &ignore_patterns).unwrap_or_else(|e| {
+      vfs: PosixFS::new(&build_root, &ignore_patterns, executor).unwrap_or_else(|e| {
         panic!("Could not initialize VFS: {:?}", e);
       }),
       build_root: build_root,
@@ -173,51 +168,6 @@ impl Core {
 
   pub fn store(&self) -> Store {
     self.store.clone()
-  }
-
-  ///
-  /// Start running a Future on a tokio Runtime.
-  ///
-  pub fn spawn<F: Future<Item = (), Error = ()> + Send + 'static>(&self, future: F) {
-    // Make sure to copy our (thread-local) logging destination into the task.
-    // When a daemon thread kicks off a future, it should log like a daemon thread (and similarly
-    // for a user-facing thread).
-    let logging_destination = logging::get_destination();
-    self
-      .runtime
-      .read()
-      .executor()
-      .spawn(futures::future::ok(()).and_then(move |()| {
-        logging::set_destination(logging_destination);
-        future
-      }))
-  }
-
-  ///
-  /// Run a Future and return its resolved Result.
-  ///
-  /// This should never be called from in a Future context, or any context where anyone may want to
-  /// spawn something on the runtime using Core::spawn.
-  ///
-  pub fn block_on<
-    Item: Send + 'static,
-    Error: Send + 'static,
-    F: Future<Item = Item, Error = Error> + Send + 'static,
-  >(
-    &self,
-    future: F,
-  ) -> Result<Item, Error> {
-    // Make sure to copy our (thread-local) logging destination into the task.
-    // When a daemon thread kicks off a future, it should log like a daemon thread (and similarly
-    // for a user-facing thread).
-    let logging_destination = logging::get_destination();
-    self
-      .runtime
-      .write()
-      .block_on(futures::future::ok(()).and_then(move |()| {
-        logging::set_destination(logging_destination);
-        future
-      }))
   }
 }
 
@@ -279,6 +229,6 @@ impl NodeContext for Context {
   where
     F: Future<Item = (), Error = ()> + Send + 'static,
   {
-    self.core.runtime.read().executor().spawn(future);
+    self.core.executor.spawn(future);
   }
 }
