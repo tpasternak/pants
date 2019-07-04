@@ -709,7 +709,7 @@ impl VFS<io::Error> for Arc<PosixFS> {
   fn scandir(&self, dir: Dir) -> BoxFuture<Arc<DirectoryListing>, io::Error> {
     self
       .executor
-      .spawn_in_new_task(PosixFS::scandir(self, dir))
+      .spawn_oneshot(PosixFS::scandir(self, dir))
       .map(Arc::new)
       .to_boxed()
   }

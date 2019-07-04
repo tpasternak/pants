@@ -229,6 +229,6 @@ impl NodeContext for Context {
   where
     F: Future<Item = (), Error = ()> + Send + 'static,
   {
-    self.core.executor.spawn(future);
+    self.core.executor.spawn_and_ignore(future);
   }
 }
