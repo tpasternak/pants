@@ -597,8 +597,10 @@ mod tests {
     OneOffStoreFileByDigest,
     tokio::runtime::Runtime,
   ) {
+    let io_pool = futures_cpupool::CpuPool::new_num_cpus();
     // TODO: Pass a remote CAS address through.
     let store = Store::local_only(
+      io_pool.clone(),
       tempfile::Builder::new()
         .prefix("lmdb_store")
         .tempdir()
@@ -606,8 +608,7 @@ mod tests {
     )
     .unwrap();
     let dir = tempfile::Builder::new().prefix("root").tempdir().unwrap();
-    let posix_fs =
-      Arc::new(PosixFS::new(dir.path(), futures_cpupool::CpuPool::new_num_cpus(), &[]).unwrap());
+    let posix_fs = Arc::new(PosixFS::new(dir.path(), io_pool, &[]).unwrap());
     let file_saver = OneOffStoreFileByDigest::new(store.clone(), posix_fs.clone());
     let runtime = tokio::runtime::Runtime::new().unwrap();
     (store, dir, posix_fs, file_saver, runtime)

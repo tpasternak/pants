@@ -104,14 +104,17 @@ impl Core {
       None
     };
 
+    let io_pool = futures_cpupool::CpuPool::new_num_cpus();
+
     let local_store_dir = local_store_dir.clone();
     let store = safe_create_dir_all_ioerror(&local_store_dir)
       .map_err(|e| format!("Error making directory {:?}: {:?}", local_store_dir, e))
       .and_then(|()| {
         if !remote_execution || remote_store_servers.is_empty() {
-          Store::local_only(local_store_dir)
+          Store::local_only(io_pool.clone(), local_store_dir)
         } else {
           Store::with_remote(
+            io_pool.clone(),
             local_store_dir,
             &remote_store_servers,
             remote_instance_name.clone(),
@@ -128,8 +131,6 @@ impl Core {
         }
       })
       .unwrap_or_else(|e| panic!("Could not initialize Store: {:?}", e));
-
-    let io_pool = futures_cpupool::CpuPool::new_num_cpus();
 
     let command_runner = match &remote_execution_server {
       Some(ref address) if remote_execution => BoundedCommandRunner::new(

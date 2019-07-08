@@ -684,8 +684,11 @@ fn main() {
     None
   };
 
+  let io_pool = futures_cpupool::CpuPool::new_num_cpus();
+
   let store = match args.value_of("server-address") {
     Some(address) => Store::with_remote(
+      io_pool,
       &store_path,
       &[address.to_owned()],
       args.value_of("remote-instance-name").map(str::to_owned),
@@ -703,7 +706,7 @@ fn main() {
       .expect("Error making BackoffConfig"),
       1,
     ),
-    None => Store::local_only(&store_path),
+    None => Store::local_only(io_pool, &store_path),
   }
   .expect("Error making store");
 
@@ -745,9 +748,7 @@ mod test {
 
   #[test]
   fn missing_digest() {
-    let (store_dir, mount_dir) = make_dirs();
-
-    let store = Store::local_only(store_dir.path()).expect("Error creating local store");
+    let (_store_dir, mount_dir, store) = make_dirs_and_store();
 
     let runtime = tokio::runtime::Runtime::new().unwrap();
 
@@ -761,10 +762,8 @@ mod test {
 
   #[test]
   fn read_file_by_digest() {
-    let (store_dir, mount_dir) = make_dirs();
+    let (_store_dir, mount_dir, store) = make_dirs_and_store();
     let mut runtime = tokio::runtime::Runtime::new().unwrap();
-
-    let store = Store::local_only(store_dir.path()).expect("Error creating local store");
 
     let test_bytes = TestData::roland();
 
@@ -783,10 +782,8 @@ mod test {
 
   #[test]
   fn list_directory() {
-    let (store_dir, mount_dir) = make_dirs();
+    let (_store_dir, mount_dir, store) = make_dirs_and_store();
     let mut runtime = tokio::runtime::Runtime::new().unwrap();
-
-    let store = Store::local_only(store_dir.path()).expect("Error creating local store");
 
     let test_bytes = TestData::roland();
     let test_directory = TestDirectory::containing_roland();
@@ -808,10 +805,8 @@ mod test {
 
   #[test]
   fn read_file_from_directory() {
-    let (store_dir, mount_dir) = make_dirs();
+    let (_store_dir, mount_dir, store) = make_dirs_and_store();
     let mut runtime = tokio::runtime::Runtime::new().unwrap();
-
-    let store = Store::local_only(store_dir.path()).expect("Error creating local store");
 
     let test_bytes = TestData::roland();
     let test_directory = TestDirectory::containing_roland();
@@ -835,10 +830,8 @@ mod test {
 
   #[test]
   fn list_recursive_directory() {
-    let (store_dir, mount_dir) = make_dirs();
+    let (_store_dir, mount_dir, store) = make_dirs_and_store();
     let mut runtime = tokio::runtime::Runtime::new().unwrap();
-
-    let store = Store::local_only(store_dir.path()).expect("Error creating local store");
 
     let test_bytes = TestData::roland();
     let treat_bytes = TestData::catnip();
@@ -869,10 +862,8 @@ mod test {
 
   #[test]
   fn read_file_from_recursive_directory() {
-    let (store_dir, mount_dir) = make_dirs();
+    let (_store_dir, mount_dir, store) = make_dirs_and_store();
     let mut runtime = tokio::runtime::Runtime::new().unwrap();
-
-    let store = Store::local_only(store_dir.path()).expect("Error creating local store");
 
     let test_bytes = TestData::roland();
     let treat_bytes = TestData::catnip();
@@ -908,10 +899,8 @@ mod test {
 
   #[test]
   fn files_are_correctly_executable() {
-    let (store_dir, mount_dir) = make_dirs();
+    let (_store_dir, mount_dir, store) = make_dirs_and_store();
     let mut runtime = tokio::runtime::Runtime::new().unwrap();
-
-    let store = Store::local_only(store_dir.path()).expect("Error creating local store");
 
     let treat_bytes = TestData::catnip();
     let directory = TestDirectory::with_mixed_executable_files();
@@ -937,10 +926,12 @@ mod test {
     format!("{}-{}", digest.0, digest.1)
   }
 
-  pub fn make_dirs() -> (tempfile::TempDir, tempfile::TempDir) {
+  pub fn make_dirs_and_store() -> (tempfile::TempDir, tempfile::TempDir, Store) {
     let store_dir = tempfile::Builder::new().prefix("store").tempdir().unwrap();
+    let store =
+      Store::local_only(futures_cpupool::CpuPool::new_num_cpus(), store_dir.path()).unwrap();
     let mount_dir = tempfile::Builder::new().prefix("mount").tempdir().unwrap();
-    (store_dir, mount_dir)
+    (store_dir, mount_dir, store)
   }
 }
 
@@ -950,19 +941,16 @@ mod test {
 mod syscall_tests {
   use super::mount;
   use super::test::digest_to_filepath;
-  use crate::test::make_dirs;
+  use crate::test::make_dirs_and_store;
   use libc;
   use std::ffi::CString;
   use std::path::Path;
-  use store::Store;
   use testutil::data::TestData;
 
   #[test]
   fn read_file_by_digest_exact_bytes() {
-    let (store_dir, mount_dir) = make_dirs();
+    let (_store_dir, mount_dir, store) = make_dirs_and_store();
     let mut runtime = tokio::runtime::Runtime::new().unwrap();
-
-    let store = Store::local_only(store_dir.path()).expect("Error creating local store");
 
     let test_bytes = TestData::roland();
 

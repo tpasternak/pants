@@ -1455,8 +1455,11 @@ mod tests {
     let store_dir = TempDir::new().unwrap();
     let store_dir_path = store_dir.path();
 
+    let io_pool = futures_cpupool::CpuPool::new_num_cpus();
+
     let cas = mock::StubCAS::empty();
     let store = Store::with_remote(
+      io_pool.clone(),
       &store_dir_path,
       &[cas.address()],
       None,
@@ -1493,7 +1496,8 @@ mod tests {
       }
     );
 
-    let local_store = Store::local_only(&store_dir_path).expect("Error creating local store");
+    let local_store =
+      Store::local_only(io_pool, &store_dir_path).expect("Error creating local store");
     {
       assert_eq!(
         runtime
@@ -1823,6 +1827,7 @@ mod tests {
       .directory(&TestDirectory::containing_roland())
       .build();
     let store = Store::with_remote(
+      futures_cpupool::CpuPool::new_num_cpus(),
       store_dir,
       &[cas.address()],
       None,
@@ -1917,6 +1922,7 @@ mod tests {
       .directory(&TestDirectory::containing_roland())
       .build();
     let store = Store::with_remote(
+      futures_cpupool::CpuPool::new_num_cpus(),
       store_dir,
       &[cas.address()],
       None,
@@ -1985,6 +1991,7 @@ mod tests {
       .directory(&TestDirectory::containing_roland())
       .build();
     let store = Store::with_remote(
+      futures_cpupool::CpuPool::new_num_cpus(),
       store_dir,
       &[cas.address()],
       None,
@@ -2611,6 +2618,7 @@ mod tests {
   fn create_command_runner(address: String, cas: &mock::StubCAS) -> CommandRunner {
     let store_dir = TempDir::new().unwrap();
     let store = Store::with_remote(
+      futures_cpupool::CpuPool::new_num_cpus(),
       store_dir,
       &[cas.address()],
       None,

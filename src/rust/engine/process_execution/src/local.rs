@@ -896,11 +896,12 @@ mod tests {
     dir: PathBuf,
     cleanup: bool,
   ) -> Result<FallibleExecuteProcessResult, String> {
+    let io_pool = futures_cpupool::CpuPool::new_num_cpus();
     let store_dir = TempDir::new().unwrap();
-    let store = Store::local_only(store_dir.path()).unwrap();
+    let store = Store::local_only(io_pool.clone(), store_dir.path()).unwrap();
     let runner = super::CommandRunner {
       store: store,
-      io_pool: futures_cpupool::CpuPool::new_num_cpus(),
+      io_pool: io_pool,
       work_dir: dir,
       cleanup_local_dirs: cleanup,
     };
