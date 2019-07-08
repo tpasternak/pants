@@ -177,9 +177,9 @@ impl Store {
   ///
   /// Make a store which only uses its local storage.
   ///
-  pub fn local_only<P: AsRef<Path>>(path: P) -> Result<Store, String> {
+  pub fn local_only<P: AsRef<Path>>(executor: logging::Executor, path: P) -> Result<Store, String> {
     Ok(Store {
-      local: local::ByteStore::new(path)?,
+      local: local::ByteStore::new(executor, path)?,
       remote: None,
     })
   }
@@ -189,6 +189,7 @@ impl Store {
   /// will attempt to back-fill its local storage from a remote CAS.
   ///
   pub fn with_remote<P: AsRef<Path>>(
+    executor: logging::Executor,
     path: P,
     cas_addresses: &[String],
     instance_name: Option<String>,
@@ -201,7 +202,7 @@ impl Store {
     rpc_retries: usize,
   ) -> Result<Store, String> {
     Ok(Store {
-      local: local::ByteStore::new(path)?,
+      local: local::ByteStore::new(executor, path)?,
       remote: Some(remote::ByteStore::new(
         cas_addresses,
         instance_name,
@@ -885,7 +886,7 @@ mod local {
   }
 
   impl ByteStore {
-    pub fn new<P: AsRef<Path>>(path: P) -> Result<ByteStore, String> {
+    pub fn new<P: AsRef<Path>>(executor: logging::Executor, path: P) -> Result<ByteStore, String> {
       let root = path.as_ref();
       let files_root = root.join("files");
       let directories_root = root.join("directories");
@@ -900,10 +901,18 @@ mod local {
           // travis fail because they can't allocate virtual memory, if there are multiple Stores
           // in memory at the same time. We don't know why they're not efficiently garbage collected
           // by python, but they're not, so...
-          file_dbs: ShardedLmdb::new(files_root.clone(), 1024 * 1024 * 1024 * 1024 / 10)
-            .map(Arc::new),
-          directory_dbs: ShardedLmdb::new(directories_root.clone(), 5 * 1024 * 1024 * 1024)
-            .map(Arc::new),
+          file_dbs: ShardedLmdb::new(
+            files_root.clone(),
+            1024 * 1024 * 1024 * 1024 / 10,
+            executor.clone(),
+          )
+          .map(Arc::new),
+          directory_dbs: ShardedLmdb::new(
+            directories_root.clone(),
+            5 * 1024 * 1024 * 1024,
+            executor,
+          )
+          .map(Arc::new),
         }),
       })
     }

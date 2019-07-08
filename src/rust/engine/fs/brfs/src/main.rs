@@ -684,8 +684,11 @@ fn main() {
     None
   };
 
+  let executor = logging::Executor::new();
+
   let store = match args.value_of("server-address") {
     Some(address) => Store::with_remote(
+      executor,
       &store_path,
       &[address.to_owned()],
       args.value_of("remote-instance-name").map(str::to_owned),
@@ -703,7 +706,7 @@ fn main() {
       .expect("Error making BackoffConfig"),
       1,
     ),
-    None => Store::local_only(&store_path),
+    None => Store::local_only(executor, &store_path),
   }
   .expect("Error making store");
 
