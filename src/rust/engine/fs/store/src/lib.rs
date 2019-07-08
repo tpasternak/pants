@@ -886,6 +886,7 @@ mod local {
     //  2. It's nice to know whether we should be able to parse something as a proto.
     file_dbs: Result<Arc<ShardedLmdb>, String>,
     directory_dbs: Result<Arc<ShardedLmdb>, String>,
+    io_pool: futures_cpupool::CpuPool,
   }
 
   impl ByteStore {
@@ -916,9 +917,10 @@ mod local {
           directory_dbs: ShardedLmdb::new(
             directories_root.clone(),
             5 * 1024 * 1024 * 1024,
-            io_pool,
+            io_pool.clone(),
           )
           .map(Arc::new),
+          io_pool,
         }),
       })
     }
@@ -1134,16 +1136,25 @@ mod local {
         EntryType::Directory => self.inner.directory_dbs.clone(),
         EntryType::File => self.inner.file_dbs.clone(),
       };
+      let dbs = try_future!(dbs);
 
-      let fingerprint = {
-        let mut hasher = Sha256::default();
-        hasher.input(&bytes);
-        Fingerprint::from_bytes_unsafe(hasher.fixed_result().as_slice())
-      };
-      let digest = Digest(fingerprint, bytes.len());
-      try_future!(dbs)
-        .store_bytes(digest.0, bytes, initial_lease)
-        .map(move |()| digest)
+      let bytes2 = bytes.clone();
+      self
+        .inner
+        .io_pool
+        .spawn(futures::future::lazy(move || {
+          let fingerprint = {
+            let mut hasher = Sha256::default();
+            hasher.input(&bytes);
+            Fingerprint::from_bytes_unsafe(hasher.fixed_result().as_slice())
+          };
+          Ok(Digest(fingerprint, bytes.len()))
+        }))
+        .and_then(move |digest| {
+          dbs
+            .store_bytes(digest.0, bytes2, initial_lease)
+            .map(move |()| digest)
+        })
         .to_boxed()
     }
 
