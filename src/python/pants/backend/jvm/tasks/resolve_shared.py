@@ -3,7 +3,7 @@
 
 
 from pants.base.build_environment import get_buildroot
-from pants.engine.fs import Digest, PathGlobs, PathGlobsAndRoot
+from pants.engine.fs import PathGlobs, PathGlobsAndRoot
 from pants.java.jar.jar_dependency_utils import ResolvedJar
 from pants.task.task import TaskBase
 from pants.util.dirutil import fast_relpath
@@ -18,11 +18,11 @@ class JvmResolverBase(TaskBase):
     This class is intended to be extended by Jvm resolvers (coursier and ivy), and the option name should reflect that.
     """
     super().register_options(register)
+    # TODO This flag should be defaulted to True when we are doing hermetic execution,
+    # and should probably go away as we move forward into that direction.
     register('--capture-snapshots', type=bool, default=False,
-             removal_version='1.19.0.dev2',
-             removal_hint='Enabled by default.',
-             help='Enable capturing snapshots to add directory digests to dependency jars.'
-                  'Note that this is necessary when hermetic execution is enabled.')
+      help='Enable capturing snapshots to add directory digests to dependency jars.'
+           'Note that this is necessary when hermetic execution is enabled.')
 
   def add_directory_digests_for_jars(self, targets_and_jars):
     """For each target, get DirectoryDigests for its jars and return them zipped with the jars.
@@ -33,7 +33,7 @@ class JvmResolverBase(TaskBase):
 
     targets_and_jars=list(targets_and_jars)
 
-    if not targets_and_jars:
+    if not targets_and_jars or not self.get_options().capture_snapshots:
       return targets_and_jars
 
     jar_paths = []
@@ -41,18 +41,10 @@ class JvmResolverBase(TaskBase):
       for jar in jars_to_snapshot:
         jar_paths.append(fast_relpath(jar.pants_path, get_buildroot()))
 
-    # Capture Snapshots for jars, using an optional adjacent digest. Create the digest afterward
-    # if it does not exist.
     snapshots = self.context._scheduler.capture_snapshots(
       tuple(
-        PathGlobsAndRoot(
-          PathGlobs([jar]),
-          get_buildroot(),
-          Digest.load(jar),
-        ) for jar in jar_paths
+        PathGlobsAndRoot(PathGlobs([jar]), get_buildroot()) for jar in jar_paths
       ))
-    for snapshot, jar_path in zip(snapshots, jar_paths):
-      snapshot.directory_digest.dump(jar_path)
 
     # We want to map back the list[Snapshot] to targets_and_jars
     # We assume that (1) jars_to_snapshot has the same number of ResolveJars as snapshots does Snapshots,

@@ -73,31 +73,31 @@ class Digest(datatype([('fingerprint', str), ('serialized_bytes_length', int)]))
   """
 
   @classmethod
-  def _path(cls, digested_path):
-    return '{}.digest'.format(digested_path.rstrip(os.sep))
+  def _path(cls, directory):
+    return '{}.digest'.format(directory.rstrip(os.sep))
 
   @classmethod
-  def clear(cls, digested_path):
-    """Clear any existing Digest file adjacent to the given digested_path."""
-    safe_delete(cls._path(digested_path))
+  def clear(cls, directory):
+    """Clear any existing Digest file adjacent to the given directory."""
+    safe_delete(cls._path(directory))
 
   @classmethod
-  def load(cls, digested_path):
-    """Load a Digest from a `.digest` file adjacent to the given digested_path.
+  def load(cls, directory):
+    """Load a Digest from a `.digest` file adjacent to the given directory.
 
     :return: A Digest, or None if the Digest did not exist.
     """
-    read_file = maybe_read_file(cls._path(digested_path))
+    read_file = maybe_read_file(cls._path(directory))
     if read_file:
       fingerprint, length = read_file.split(':')
       return Digest(fingerprint, int(length))
     else:
       return None
 
-  def dump(self, digested_path):
-    """Dump this Digest object adjacent to the given digested_path."""
+  def dump(self, directory):
+    """Dump this Digest object adjacent to the given directory."""
     payload = '{}:{}'.format(self.fingerprint, self.serialized_bytes_length)
-    safe_file_dump(self._path(digested_path), payload=payload)
+    safe_file_dump(self._path(directory), payload=payload)
 
   def __repr__(self):
     return '''Digest(fingerprint={}, serialized_bytes_length={})'''.format(
