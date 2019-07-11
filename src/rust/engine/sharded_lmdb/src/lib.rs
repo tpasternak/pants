@@ -175,31 +175,27 @@ impl ShardedLmdb {
     key: Fingerprint,
     bytes: Bytes,
     initial_lease: bool,
-  ) -> impl Future<Item = (), Error = String> {
+  ) -> Result<(), String> {
     let store = self.clone();
-    self
-      .executor
-      .spawn_on_io_pool(futures::future::lazy(move || {
-        let (env, db, lease_database) = store.get(&key);
-        let put_res = env.begin_rw_txn().and_then(|mut txn| {
-          txn.put(db, &key, &bytes, WriteFlags::NO_OVERWRITE)?;
-          if initial_lease {
-            store.lease(
-              lease_database,
-              &key,
-              Self::default_lease_until_secs_since_epoch(),
-              &mut txn,
-            )?;
-          }
-          txn.commit()
-        });
+    let (env, db, lease_database) = store.get(&key);
+    let put_res = env.begin_rw_txn().and_then(|mut txn| {
+      txn.put(db, &key, &bytes, WriteFlags::NO_OVERWRITE)?;
+      if initial_lease {
+        store.lease(
+          lease_database,
+          &key,
+          Self::default_lease_until_secs_since_epoch(),
+          &mut txn,
+        )?;
+      }
+      txn.commit()
+    });
 
-        match put_res {
-          Ok(()) => Ok(()),
-          Err(lmdb::Error::KeyExist) => Ok(()),
-          Err(err) => Err(format!("Error storing key {:?}: {}", key.to_hex(), err)),
-        }
-      }))
+    match put_res {
+      Ok(()) => Ok(()),
+      Err(lmdb::Error::KeyExist) => Ok(()),
+      Err(err) => Err(format!("Error storing key {:?}: {}", key.to_hex(), err)),
+    }
   }
 
   fn lease(

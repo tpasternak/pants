@@ -1136,7 +1136,6 @@ mod local {
         EntryType::Directory => self.inner.directory_dbs.clone(),
         EntryType::File => self.inner.file_dbs.clone(),
       };
-      let bytes2 = bytes.clone();
       self
         .inner
         .executor
@@ -1146,13 +1145,10 @@ mod local {
             hasher.input(&bytes);
             Fingerprint::from_bytes_unsafe(hasher.fixed_result().as_slice())
           };
-          Ok(Digest(fingerprint, bytes.len()))
+          let digest = Digest(fingerprint, bytes.len());
+          dbs?.store_bytes(digest.0, bytes, initial_lease)?;
+          Ok(digest)
         }))
-        .and_then(move |digest| {
-          future::done(dbs)
-            .and_then(move |db| db.store_bytes(digest.0, bytes2, initial_lease))
-            .map(move |()| digest)
-        })
     }
 
     pub fn load_bytes_with<T: Send + 'static, F: Fn(Bytes) -> T + Send + Sync + 'static>(
