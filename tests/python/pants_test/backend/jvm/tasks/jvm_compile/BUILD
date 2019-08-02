@@ -70,5 +70,4 @@ python_tests(
     'src/python/pants/backend/jvm/tasks/jvm_compile:missing_dependency_finder',
   ],
   tags={'integration'},
-  timeout = 240,
 )

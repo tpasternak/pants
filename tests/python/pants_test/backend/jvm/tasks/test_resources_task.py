@@ -55,15 +55,14 @@ class ResourcesTaskTestBase(TaskTestBase):
     classpath_products = task.context.products.get_data('runtime_classpath')
 
     expected_confs = expected_confs or ('default',)
-    products = classpath_products.get_classpath_entries_for_targets([target])
+    products = classpath_products.get_for_target(target)
     self.assertEqual(len(expected_confs), len(products))
 
     confs = []
     chroots = set()
-    for conf, entry in products:
-      self.assertTrue(entry.directory_digest is not None)
+    for conf, chroot in products:
       confs.append(conf)
-      chroots.add(entry.path)
+      chroots.add(chroot)
     self.assertEqual(sorted(expected_confs), sorted(confs))
     self.assertEqual(1, len(chroots))
     chroot = chroots.pop()

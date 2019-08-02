@@ -396,12 +396,3 @@ class BaseZincCompileIntegrationTest:
                                 """))
 
       self.run_run(cachetest_spec, config, workdir)
-
-  def test_hermetic(self):
-    extra_args = [
-        '--compile-zinc-execution-strategy=hermetic',
-        '--compile-zinc-incremental=False',
-      ]
-
-    with self.do_test_compile('examples/src/scala/org/pantsbuild/example/hello/exe', extra_args=extra_args):
-      pass
