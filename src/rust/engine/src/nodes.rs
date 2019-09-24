@@ -173,7 +173,7 @@ impl WrappedNode for Select {
           let core = context.core.clone();
           let core2 = core.clone();
           self
-            .select_product(&context, types.directory_to_materialize, "intrinsic")
+            .select_product(&context, context.core.types.directory_to_materialize, "intrinsic")
             .and_then(move |val| {
               let dir = PathBuf::from(externs::project_str(&val, "path"));
               let digest = lift_digest(&externs::project_ignoring_type(&val, "directory_digest"))
