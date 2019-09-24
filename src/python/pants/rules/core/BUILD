@@ -1,5 +1,6 @@
 python_library(
     dependencies = [
+        '3rdparty/python:dataclasses',
         'src/python/pants/base:exiter',
         'src/python/pants/build_graph',
         'src/python/pants/engine:goal',
@@ -22,4 +23,3 @@ python_tests(
     'tests/python/pants_test/engine:util'
   ]
 )
-

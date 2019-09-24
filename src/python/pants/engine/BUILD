@@ -45,6 +45,7 @@ python_library(
   name='fs',
   sources=['fs.py'],
   dependencies=[
+    '3rdparty/python:dataclasses',
     '3rdparty/python/twitter/commons:twitter.common.collections',
     ':objects',
     ':rules',
@@ -168,6 +169,7 @@ python_library(
   name='scheduler',
   sources=['scheduler.py'],
   dependencies=[
+    '3rdparty/python:dataclasses',
     '3rdparty/python/twitter/commons:twitter.common.collections',
     ':fs',
     ':isolated_process',

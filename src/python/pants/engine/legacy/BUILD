@@ -46,6 +46,7 @@ python_library(
   name='structs',
   sources=['structs.py'],
   dependencies=[
+    '3rdparty/python:dataclasses',
     'src/python/pants/base:deprecated',
     'src/python/pants/build_graph',
     'src/python/pants/engine:fs',
