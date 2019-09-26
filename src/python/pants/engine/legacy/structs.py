@@ -258,24 +258,6 @@ class RemoteSourcesAdaptor(TargetAdaptor):
     super().__init__(dest=dest, **kwargs)
 
 
-class PythonTargetAdaptor(TargetAdaptor):
-  @property
-  def field_adaptors(self):
-    with exception_logging(logger, 'Exception in `field_adaptors` property'):
-      field_adaptors = super().field_adaptors
-      if getattr(self, 'resources', None) is None:
-        return field_adaptors
-      base_globs = BaseGlobs.from_sources_field(self.resources, self.address.spec_path)
-      path_globs = base_globs.to_path_globs(self.address.spec_path, GlobExpansionConjunction.all_match)
-      sources_field = SourcesField(self.address,
-                                   'resources',
-                                   base_globs.filespecs,
-                                   base_globs,
-                                   path_globs,
-                                   lambda _: None)
-      return field_adaptors + (sources_field,)
-
-
 @dataclass(frozen=True)
 class EntryPointField:
   address: Address
@@ -286,15 +268,33 @@ class EntryPointField:
     return 'entry_point'
 
 
-class PythonBinaryAdaptor(PythonTargetAdaptor):
+class PythonTargetAdaptor(TargetAdaptor):
   @property
   def field_adaptors(self):
-    field_adaptors = list(super().field_adaptors)
-    maybe_entry_point = getattr(self, 'entry_point', None)
-    if maybe_entry_point is not None:
-      field_adaptors.append(EntryPointField(self.address, maybe_entry_point))
-    return tuple(field_adaptors)
+    with exception_logging(logger, 'Exception in `field_adaptors` property'):
+      field_adaptors = list(super().field_adaptors)
 
+      maybe_resources = getattr(self, 'resources', None)
+      if maybe_resources is not None:
+        base_globs = BaseGlobs.from_sources_field(maybe_resources, self.address.spec_path)
+        path_globs = base_globs.to_path_globs(self.address.spec_path,
+                                              GlobExpansionConjunction.all_match)
+        sources_field = SourcesField(self.address,
+                                     'resources',
+                                     base_globs.filespecs,
+                                     base_globs,
+                                     path_globs,
+                                     lambda _: None)
+        field_adaptors.append(sources_field)
+
+      maybe_entry_point = getattr(self, 'entry_point', None)
+      if maybe_entry_point is not None:
+        field_adaptors.append(EntryPointField(self.address, maybe_entry_point))
+
+      return tuple(field_adaptors)
+
+
+class PythonBinaryAdaptor(PythonTargetAdaptor):
   def validate_sources(self, sources):
     if len(sources.files) > 1:
       raise Target.IllegalArgument(self.address.spec,

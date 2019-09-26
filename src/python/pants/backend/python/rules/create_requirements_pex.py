@@ -1,8 +1,12 @@
 # Copyright 2019 Pants project contributors (see CONTRIBUTORS.md).
 # Licensed under the Apache License, Version 2.0 (see LICENSE).
 
+import logging
+import os
+
 from pants.backend.python.rules.download_pex_bin import DownloadedPexBin
 from pants.backend.python.subsystems.python_native_code import PexBuildEnvironment, PythonNativeCode
+from pants.backend.python.subsystems.python_repos import PythonRepos
 from pants.backend.python.subsystems.python_setup import PythonSetup
 from pants.engine.isolated_process import ExecuteProcessRequest, ExecuteProcessResult
 from pants.engine.fs import EMPTY_DIRECTORY_DIGEST, Digest, DirectoriesToMerge
@@ -10,6 +14,9 @@ from pants.engine.rules import optionable_rule, rule
 from pants.engine.selectors import Get
 from pants.util.objects import Exactly, datatype, hashable_string_list, string_optional, string_type
 from pants.util.strutil import create_path_env_var
+
+
+logger = logging.getLogger(__name__)
 
 
 class MakePexRequest(datatype([
@@ -31,14 +38,23 @@ class RequirementsPex(datatype([('directory_digest', Digest)])):
   pass
 
 
+def containing_dir_if_exe(path):
+  if not os.path.isdir(path):
+    return os.path.dirname(path)
+  return path
+
+
 # TODO: This is non-hermetic because the requirements will be resolved on the fly by
 # pex, where it should be hermetically provided in some way.
-@rule(RequirementsPex, [MakePexRequest, DownloadedPexBin, PythonSetup, PexBuildEnvironment])
-def create_requirements_pex(request, pex_bin, python_setup, pex_build_environment):
+@rule(RequirementsPex, [MakePexRequest, DownloadedPexBin, PythonSetup, PythonRepos, PexBuildEnvironment])
+def create_requirements_pex(request, pex_bin, python_setup, python_repos, pex_build_environment):
   """Returns a PEX with the given requirements, optional entry point, and optional
   interpreter constraints."""
 
-  interpreter_search_paths = create_path_env_var(python_setup.interpreter_search_paths)
+  interpreter_search_paths = create_path_env_var([
+    containing_dir_if_exe(p) for p in
+    python_setup.interpreter_search_paths
+  ])
   env = {"PATH": interpreter_search_paths, **pex_build_environment.invocation_environment_dict}
 
   interpreter_constraint_args = []
@@ -52,18 +68,39 @@ def create_requirements_pex(request, pex_bin, python_setup, pex_build_environmen
   # necessarily the interpreter that PEX will use to execute the generated .pex file.
   # TODO(#7735): Set --python-setup-interpreter-search-paths differently for the host and target
   # platforms, when we introduce platforms in https://github.com/pantsbuild/pants/issues/7735.
-  argv = ["python", f"./{pex_bin.executable}", "--output-file", request.output_filename]
+  argv = [
+    "python",
+    f"./{pex_bin.executable}",
+    "--output-file",
+    request.output_filename,
+    # FIXME: interpreter constraints don't play well with pexrc configuration in some internal
+    # repos!
+    '--python=python3.6',
+  ]
+
+  # argv.append('--no-index')
+  argv.extend(
+    f'--index-url={python_index}'
+    for python_index in python_repos.indexes
+  )
+  argv.extend(
+    f'--repo={repo_url}'
+    for repo_url in python_repos.repos
+  )
+
   if request.entry_point is not None:
     argv.extend(["--entry-point", request.entry_point])
-  argv.extend(interpreter_constraint_args + list(request.requirements))
+
+  # FIXME: interpreter constraints don't play well with pexrc configuration in some internal repos!
+  # argv.extend(interpreter_constraint_args)
+  argv.extend(request.requirements)
 
   argv.extend(
     f'--sources-directory={src_dir}'
     for src_dir in request.source_dirs
   )
 
-  sources_digest = request.input_files_digest if request.input_files_digest else EMPTY_DIRECTORY_DIGEST
-  all_inputs = (pex_bin.directory_digest, sources_digest,)
+  all_inputs = (pex_bin.directory_digest,) + ((request.input_files_digest,) if request.input_files_digest else ())
   merged_digest = yield Get(Digest, DirectoriesToMerge(directories=all_inputs))
 
   execute_process_request = ExecuteProcessRequest(
@@ -71,7 +108,7 @@ def create_requirements_pex(request, pex_bin, python_setup, pex_build_environmen
     env=env,
     input_files=merged_digest,
     description=f"Create a PEX with sources and requirements: {', '.join(request.requirements)}",
-    output_files=(request.output_filename,),
+    output_files=(f'./{request.output_filename}',),
   )
 
   result = yield Get(ExecuteProcessResult, ExecuteProcessRequest, execute_process_request)
@@ -83,4 +120,5 @@ def rules():
     create_requirements_pex,
     optionable_rule(PythonSetup),
     optionable_rule(PythonNativeCode),
+    optionable_rule(PythonRepos),
   ]

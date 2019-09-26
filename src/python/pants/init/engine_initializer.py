@@ -105,10 +105,13 @@ def _legacy_symbol_table(build_file_aliases):
     # Conveniently, multi-target_type TargetMacro.Factory, and legacy python source parsing, are
     # targeted to be removed in the same version of pants.
     if len(factory.target_types) == 1:
-      table[alias] = _make_target_adaptor(
-        TargetAdaptor,
-        tuple(factory.target_types)[0],
-      )
+      if 'python' in alias:
+        table[alias] = PythonTargetAdaptor
+      else:
+        table[alias] = _make_target_adaptor(
+          TargetAdaptor,
+          tuple(factory.target_types)[0],
+        )
 
   # TODO: The alias replacement here is to avoid elevating "TargetAdaptors" into the public
   # API until after https://github.com/pantsbuild/pants/issues/3560 has been completed.
@@ -117,9 +120,9 @@ def _legacy_symbol_table(build_file_aliases):
   table['python_library'] = PythonTargetAdaptor
   table['jvm_app'] = JvmAppAdaptor
   table['jvm_binary'] = JvmBinaryAdaptor
-  table['python_app'] = PythonAppAdaptor
-  table['python_tests'] = PythonTestsAdaptor
-  table['python_binary'] = PythonBinaryAdaptor
+  table['python_app'] = PythonTargetAdaptor
+  table['python_tests'] = PythonTargetAdaptor
+  table['python_binary'] = PythonTargetAdaptor
   table['remote_sources'] = RemoteSourcesAdaptor
   table['page'] = PageAdaptor
 

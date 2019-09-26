@@ -113,7 +113,7 @@ class PythonBinary(PythonTarget):
     if not isinstance(platforms, (list, tuple)) and not isinstance(platforms, str):
       raise TargetDefinitionException(self, 'platforms must be a list, tuple or str.')
 
-    if sources and sources.files and entry_point:
+    if kwargs.get('source', None) and entry_point:
       entry_point_module = entry_point.split(':', 1)[0]
       entry_source = list(self.sources_relative_to_source_root())[0]
       source_entry_point = self._translate_to_entry_point(entry_source)

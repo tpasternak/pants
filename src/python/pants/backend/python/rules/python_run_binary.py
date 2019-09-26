@@ -1,10 +1,11 @@
 # Copyright 2019 Pants project contributors (see CONTRIBUTORS.md).
 # Licensed under the Apache License, Version 2.0 (see LICENSE).
 
+import os
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
-from pants.backend.python.rules.create_requirements_pex import MakePexRequest, RequirementsPex
+from pants.backend.python.rules.create_requirements_pex import MakePexRequest, RequirementsPex, containing_dir_if_exe
 from pants.backend.python.rules.inject_init import InjectedInitDigest
 from pants.backend.python.subsystems.python_setup import PythonSetup
 from pants.backend.python.subsystems.subprocess_environment import SubprocessEncodingEnvironment
@@ -12,7 +13,7 @@ from pants.build_graph.files import Files
 from pants.engine.fs import Digest, DirectoriesToMerge, DirectoryWithPrefixToStrip
 from pants.engine.isolated_process import ExecuteProcessRequest, FallibleExecuteProcessResult
 from pants.engine.legacy.graph import BuildFileAddresses, TransitiveHydratedTargets
-from pants.engine.legacy.structs import PythonBinaryAdaptor
+from pants.engine.legacy.structs import PythonTargetAdaptor
 from pants.engine.rules import UnionRule, rule
 from pants.engine.selectors import Get
 from pants.rules.core.run import RunResult, RunTarget
@@ -27,7 +28,7 @@ class RunnablePex:
   exe_env: Dict[Any, Any]
 
 
-@rule(RunnablePex, [PythonBinaryAdaptor, PythonSetup, SourceRootConfig, SubprocessEncodingEnvironment])
+@rule(RunnablePex, [PythonTargetAdaptor, PythonSetup, SourceRootConfig, SubprocessEncodingEnvironment])
 def create_python_binary(python_binary_target, python_setup, source_root_config, subprocess_encoding_environment):
   # TODO(7726): replace this with a proper API to get the `closure` for a
   # TransitiveHydratedTarget.
@@ -85,7 +86,10 @@ def create_python_binary(python_binary_target, python_setup, source_root_config,
     DirectoriesToMerge(directories=tuple(all_input_digests)),
   )
 
-  interpreter_search_paths = create_path_env_var(python_setup.interpreter_search_paths)
+  interpreter_search_paths = create_path_env_var([
+    containing_dir_if_exe(p) for p in
+    python_setup.interpreter_search_paths
+  ])
   pex_exe_env = {
     'PATH': interpreter_search_paths,
     **subprocess_encoding_environment.invocation_environment_dict
@@ -109,7 +113,7 @@ def create_python_binary(python_binary_target, python_setup, source_root_config,
       output_filename=output_thirdparty_requirements_pex_filename,
       requirements=tuple(sorted(all_requirements)),
       interpreter_constraints=tuple(sorted(interpreter_constraints)),
-      entry_point=python_binary_target.entry_point,
+      entry_point=getattr(python_binary_target, 'entry_point', None),
       input_files_digest=merged_input_files,
       source_dirs=tuple(['.']),
     )
@@ -149,5 +153,5 @@ def rules():
   return [
     create_python_binary,
     run_python_binary,
-    UnionRule(RunTarget, PythonBinaryAdaptor),
+    UnionRule(RunTarget, PythonTargetAdaptor),
   ]
