@@ -35,13 +35,14 @@
 # The script defaults to running with Python 3. To use a specific Python version,
 # such as 3.7, prefix the script with `PY=python3.7`.
 
+# set -euxo pipefail
 set -e
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 # Set RUN_PANTS_FROM_PEX to non-empty to cause this wrapper script to delegate directly
 # to ./pants.pex. We use this in CI to avoid bootstrapping in every shard.
-if [[ -n "${RUN_PANTS_FROM_PEX}" ]]; then
+if [[ -n "${RUN_PANTS_FROM_PEX:-}" ]]; then
   exec "${HERE}/pants.pex" "$@"
 fi
 
@@ -61,7 +62,7 @@ export PY="${PY:-python3}"
 
 PANTS_EXE="${HERE}/src/python/pants/bin/pants_loader.py"
 
-if [[ -n "${WRAPPER_REQUIREMENTS}" ]]; then
+if [[ -n "${WRAPPER_REQUIREMENTS:-}" ]]; then
   # WONTFIX: fixing the array expansion is too difficult to be worth it. See https://github.com/koalaman/shellcheck/wiki/SC2207.
   # shellcheck disable=SC2207
   REQUIREMENTS=(
@@ -73,7 +74,7 @@ fi
 PANTS_SRCPATH=(
   "${HERE}/src/python"
 )
-if [[ -n "${WRAPPER_SRCPATH}" ]]; then
+if [[ -n "${WRAPPER_SRCPATH:-}" ]]; then
   # WONTFIX: fixing the array expansion is too difficult to be worth it. See https://github.com/koalaman/shellcheck/wiki/SC2207.
   # shellcheck disable=SC2207
   PANTS_SRCPATH=(
@@ -87,18 +88,18 @@ function exec_pants_bare() {
   # Redirect activation and native bootstrap to ensure that they don't interfere with stdout.
   activate_pants_venv 1>&2
   bootstrap_native_code 1>&2
-  PYTHONPATH="${PANTS_SRCPATH_STR}:${PYTHONPATH}" \
+  PYTHONPATH="${PANTS_SRCPATH_STR}:${PYTHONPATH:-}" \
     exec python "${PANTS_EXE}" "$@"
 }
 
-if [[ -n "${WRAPPER_REQUIREMENTS}" ]]; then
+if [[ -n "${WRAPPER_REQUIREMENTS:-}" ]]; then
   log "*** Running pants with extra requirements: ${WRAPPER_REQUIREMENTS} ***"
 fi
-if [[ -n "${WRAPPER_SRCPATH}" ]]; then
+if [[ -n "${WRAPPER_SRCPATH:-}" ]]; then
   log "*** Running pants with extra sources ${WRAPPER_SRCPATH} ***"
 fi
 
-if [[ -n "$PANTS_DEV" && "$PANTS_DEV" -eq 0 ]]; then
+if [[ -n "${PANTS_DEV:-}" && "$PANTS_DEV" -eq 0 ]]; then
   # Unexport PANTS_DEV if explicitly set to 0.
   export -n PANTS_DEV
 else

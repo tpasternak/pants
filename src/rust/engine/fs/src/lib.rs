@@ -587,7 +587,7 @@ impl PosixFS {
           } else {
             Err(io::Error::new(
               io::ErrorKind::InvalidInput,
-              "Not a directory.",
+              format!("{:?} is not a directory!", canonical).as_str(),
             ))
           }
         })

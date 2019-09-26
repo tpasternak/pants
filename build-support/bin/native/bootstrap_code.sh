@@ -44,7 +44,6 @@ function calculate_current_hash() {
   (
    cd "${REPO_ROOT}" || exit 1
    (echo "${MODE_FLAG}"
-    echo "${RUST_TOOLCHAIN}"
     uname
     python --version 2>&1
     git ls-files -c -o --exclude-standard \
