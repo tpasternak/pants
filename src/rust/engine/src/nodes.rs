@@ -435,14 +435,7 @@ impl ExecuteProcess {
 
     let description = externs::project_str(&value, "description");
 
-    let jdk_home = {
-      let val = externs::project_str(&value, "jdk_home");
-      if val.is_empty() {
-        None
-      } else {
-        Some(PathBuf::from(val))
-      }
-    };
+    let jdk_home = externs::maybe_project_str(&value, "jdk_home").map(PathBuf::from);
 
     Ok(ExecuteProcess(process_execution::ExecuteProcessRequest {
       argv: externs::project_multi_strs(&value, "argv"),

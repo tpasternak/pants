@@ -102,10 +102,12 @@ python_library(
   name='isolated_process',
   sources=['isolated_process.py'],
   dependencies=[
+    '3rdparty/python:dataclasses',
     ':fs',
     ':rules',
     ':selectors',
     'src/python/pants/util:objects',
+    'src/python/pants/util:osutil',
   ]
 )
 

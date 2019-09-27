@@ -139,7 +139,24 @@ class Report:
       # in Python 2. It is not clear why the dictionary size is changing, and this may
       # be a potential source of issues.
       for label, output in list(workunit.outputs().items()):
-        s = output.read().decode()
+        # output.reacquire()
+        # old_fd = output.fileno()
+        # open(old_fd).close()
+        # backing_file = output._backing_file
+        # raise Exception(f'backing_file: {backing_file}')
+        # new_io = open(backing_file, 'a+b')
+        try:
+          s = output.read().decode()
+        except OSError as e:
+          if e.errno is 9:
+            try:
+              output.close()
+            except OSError:
+              pass
+            output.reset_new_io_idk()
+            s = output.read().decode()
+          else:
+            raise
         if len(s) > 0:
           for reporter in self._reporters.values():
             reporter.handle_output(workunit, label, s)

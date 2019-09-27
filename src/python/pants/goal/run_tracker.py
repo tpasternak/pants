@@ -307,7 +307,7 @@ class RunTracker(Subsystem):
 
     :API: public
     """
-    parent = self._threadlocal.current_workunit
+    parent = getattr(self._threadlocal, 'current_workunit', self._main_root_workunit)
     with self.new_workunit_under_parent(name, parent=parent, labels=labels, cmd=cmd,
                                         log_config=log_config) as workunit:
       self._threadlocal.current_workunit = workunit

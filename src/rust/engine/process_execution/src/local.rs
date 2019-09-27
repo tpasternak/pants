@@ -7,7 +7,8 @@ use futures::{future, Future, Stream};
 use log::info;
 use std::collections::{BTreeSet, HashSet};
 use std::ffi::OsStr;
-use std::fs::create_dir_all;
+use std::fs::{create_dir_all};
+use std::io::{stdout, stderr, Write};
 use std::ops::Neg;
 use std::os::unix::{fs::symlink, process::ExitStatusExt};
 use std::path::{Path, PathBuf};
@@ -140,7 +141,12 @@ impl StreamedHermeticCommand {
     self
   }
 
-  fn stream(&mut self) -> Result<impl Stream<Item = ChildOutput, Error = String> + Send, String> {
+  #[allow(warnings)]
+  fn stream(
+    &mut self,
+    req: ExecuteProcessRequest,
+  ) -> Result<impl Stream<Item = ChildOutput, Error = String> + Send, String> {
+    let tee_stdout_stderr = true;
     self
       .inner
       .stdin(Stdio::null())
@@ -148,12 +154,25 @@ impl StreamedHermeticCommand {
       .stderr(Stdio::piped())
       .spawn_async()
       .map_err(|e| format!("Error launching process: {:?}", e))
-      .and_then(|mut child| {
-        let stdout_stream = FramedRead::new(child.stdout().take().unwrap(), BytesCodec::new())
-          .map(|bytes| ChildOutput::Stdout(bytes.into()));
-        let stderr_stream = FramedRead::new(child.stderr().take().unwrap(), BytesCodec::new())
-          .map(|bytes| ChildOutput::Stderr(bytes.into()));
-        let exit_stream = child.into_stream().map(|exit_status| {
+      .and_then(move |mut child| {
+        let stdout_contents = child.stdout().take().unwrap();
+        let stderr_contents = child.stderr().take().unwrap();
+        let stdout_stream = FramedRead::new(stdout_contents, BytesCodec::new()).map(move |bytes| {
+          if tee_stdout_stderr {
+            stdout().write_all(&bytes.clone());
+          }
+          ChildOutput::Stdout(bytes.into())
+        });
+        let stderr_stream = FramedRead::new(stderr_contents, BytesCodec::new()).map(move |bytes| {
+          if tee_stdout_stderr {
+            stderr().write_all(&bytes.clone());
+          }
+          ChildOutput::Stderr(bytes.into())
+        });
+        let exit_stream = child.into_stream().map(move |exit_status| {
+          /* if tee_stdout_stderr { */
+          /*   panic!("status: {:?}", exit_status); */
+          /* } */
           ChildOutput::Exit(
             exit_status
               .code()
@@ -234,15 +253,20 @@ impl super::CommandRunner for CommandRunner {
     let store = self.store.clone();
     let executor = self.executor.clone();
 
-    let env = req.env;
-    let output_file_paths = req.output_files;
+    let ExecuteProcessRequest {
+      env,
+      output_files: output_file_paths,
+      output_directories: output_dir_paths,
+      argv,
+      description: req_description,
+      jdk_home: maybe_jdk_home,
+      ..
+    } = req.clone();
+
     let output_file_paths2 = output_file_paths.clone();
-    let output_dir_paths = req.output_directories;
     let output_dir_paths2 = output_dir_paths.clone();
     let cleanup_local_dirs = self.cleanup_local_dirs;
-    let argv = req.argv;
-    let req_description = req.description;
-    let maybe_jdk_home = req.jdk_home;
+
     self
       .store
       .materialize_directory(workdir_path.clone(), req.input_files, workunit_store)
@@ -280,7 +304,7 @@ impl super::CommandRunner for CommandRunner {
           .args(&argv[1..])
           .current_dir(&workdir_path)
           .envs(env)
-          .stream()
+          .stream(req)
       })
       // NB: We fully buffer up the `Stream` above into final `ChildResults` below and so could
       // instead be using `CommandExt::output_async` above to avoid the `ChildResults::collect_from`

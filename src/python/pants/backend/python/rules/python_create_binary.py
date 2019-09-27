@@ -31,7 +31,11 @@ def create_real_python_binary(python_binary_target, dist_dir):
     path=dist_dir.path,
     directory_digest=runnable_pex.pex.directory_digest,
   ))
-  yield BinaryResult(buildroot_relative_path=materialized_directory.path_bytes.decode('utf-8'))
+  yield BinaryResult(buildroot_relative_path=(
+    materialized_directory.path_bytes.decode('utf-8')
+    if materialized_directory
+    else ''
+  ))
 
 
 def rules():

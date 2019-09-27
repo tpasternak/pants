@@ -180,6 +180,24 @@ pub fn project_str(value: &Value, field: &str) -> String {
   val_to_str(&name_val)
 }
 
+pub fn maybe_project_str(value: &Value, field: &str) -> Option<String> {
+  let name_val = with_externs(|e| {
+    (e.project_ignoring_type)(
+      e.context,
+      value as &Handle,
+      field.as_ptr(),
+      field.len() as u64,
+    )
+    .into()
+  });
+  let str_form = val_to_str(&name_val);
+  if str_form.is_empty() {
+    None
+  } else {
+    Some(str_form)
+  }
+}
+
 pub fn key_to_str(key: &Key) -> String {
   val_to_str(&val_for(key))
 }

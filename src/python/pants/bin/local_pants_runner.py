@@ -273,6 +273,7 @@ class LocalPantsRunner(ExceptionSink.AccessGlobalExiterMixin):
       self._options_bootstrapper,
       goals,
       self._target_roots,
+      self._run_tracker
     )
 
   @staticmethod

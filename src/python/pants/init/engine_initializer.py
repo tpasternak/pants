@@ -31,9 +31,10 @@ from pants.engine.legacy.structs import (JvmAppAdaptor, JvmBinaryAdaptor, PageAd
 from pants.engine.legacy.structs import rules as structs_rules
 from pants.engine.mapper import AddressMapper
 from pants.engine.parser import SymbolTable
-from pants.engine.rules import RootRule, rule
+from pants.engine.rules import RootRule, optionable_rule, rule
 from pants.engine.scheduler import Scheduler
 from pants.engine.selectors import Params
+from pants.goal.run_tracker import RunTracker
 from pants.init.options_initializer import BuildConfigInitializer, OptionsInitializer
 from pants.option.global_options import (DEFAULT_EXECUTION_OPTIONS, DistDir, ExecutionOptions,
                                          GlobMatchErrorBehavior)
@@ -170,7 +171,7 @@ class LegacyGraphSession(datatype(['scheduler_session', 'build_file_aliases', 'g
       )
       self.invalid_goals = invalid_goals
 
-  def run_console_rules(self, options_bootstrapper, goals, target_roots):
+  def run_console_rules(self, options_bootstrapper, goals, target_roots, run_tracker):
     """Runs @console_rules sequentially and interactively by requesting their implicit Goal products.
 
     For retryable failures, raises scheduler.ExecutionError.
@@ -186,7 +187,7 @@ class LegacyGraphSession(datatype(['scheduler_session', 'build_file_aliases', 'g
     )
     for goal in goals:
       goal_product = self.goal_map[goal]
-      params = Params(subject, options_bootstrapper, console)
+      params = Params(subject, options_bootstrapper, console, run_tracker)
       logger.debug('requesting {} to satisfy execution of `{}` goal'.format(goal_product, goal))
       try:
         exit_code = self.scheduler_session.run_console_rule(goal_product, params)
@@ -349,6 +350,7 @@ class EngineInitializer:
     rules = (
       [
         RootRule(Console),
+        RootRule(RunTracker),
         dist_dir_singleton,
         glob_match_error_behavior_singleton,
         build_configuration_singleton,

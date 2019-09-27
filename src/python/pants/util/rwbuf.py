@@ -71,10 +71,30 @@ class FileBackedRWBuf(_RWBuf):
 
   def __init__(self, backing_file):
     _RWBuf.__init__(self, open(backing_file, 'a+b'))
-    self.fileno = self._io.fileno
+    self._backing_file = backing_file
+    self._maybe_new_io_state_flag = None
+
+  def fileno(self):
+    return self._io.fileno()
+
+  def reset_new_io_idk(self):
+    self._maybe_new_io_state_flag = open(self._backing_file, 'a+b')
+    self._io = self._maybe_new_io_state_flag
+
+  def read(self):
+    if self._maybe_new_io_state_flag is not None:
+      return self._maybe_new_io_state_flag.read()
+    else:
+      return super().read()
+
+  def close(self):
+    if self._maybe_new_io_state_flag is not None:
+      return self._maybe_new_io_state_flag.close()
+    else:
+      return super().close()
 
   def do_write(self, s):
-    self._io.write(s)
+    return self._io.write(s)
 
 
 class StringWriter:

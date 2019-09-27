@@ -3,6 +3,7 @@
 
 import logging
 import os
+import sys
 
 from pants.backend.python.rules.download_pex_bin import DownloadedPexBin
 from pants.backend.python.subsystems.python_native_code import PexBuildEnvironment, PythonNativeCode
@@ -12,6 +13,7 @@ from pants.engine.isolated_process import ExecuteProcessRequest, ExecuteProcessR
 from pants.engine.fs import EMPTY_DIRECTORY_DIGEST, Digest, DirectoriesToMerge
 from pants.engine.rules import optionable_rule, rule
 from pants.engine.selectors import Get
+from pants.goal.run_tracker import RunTracker
 from pants.util.objects import Exactly, datatype, hashable_string_list, string_optional, string_type
 from pants.util.strutil import create_path_env_var
 
@@ -46,8 +48,8 @@ def containing_dir_if_exe(path):
 
 # TODO: This is non-hermetic because the requirements will be resolved on the fly by
 # pex, where it should be hermetically provided in some way.
-@rule(RequirementsPex, [MakePexRequest, DownloadedPexBin, PythonSetup, PythonRepos, PexBuildEnvironment])
-def create_requirements_pex(request, pex_bin, python_setup, python_repos, pex_build_environment):
+@rule(RequirementsPex, [MakePexRequest, DownloadedPexBin, PythonSetup, PythonRepos, PexBuildEnvironment, RunTracker])
+def create_requirements_pex(request, pex_bin, python_setup, python_repos, pex_build_environment, run_tracker):
   """Returns a PEX with the given requirements, optional entry point, and optional
   interpreter constraints."""
 
@@ -71,6 +73,7 @@ def create_requirements_pex(request, pex_bin, python_setup, python_repos, pex_bu
   argv = [
     "python",
     f"./{pex_bin.executable}",
+    '-vvvvvvvvv',
     "--output-file",
     request.output_filename,
     # FIXME: interpreter constraints don't play well with pexrc configuration in some internal
@@ -103,15 +106,23 @@ def create_requirements_pex(request, pex_bin, python_setup, python_repos, pex_bu
   all_inputs = (pex_bin.directory_digest,) + ((request.input_files_digest,) if request.input_files_digest else ())
   merged_digest = yield Get(Digest, DirectoriesToMerge(directories=all_inputs))
 
+  workunit_contextmanager = run_tracker.new_workunit(name='python-with-output-run')
+  scoped_workunit = workunit_contextmanager.__enter__()
+  # logger.info(f'BEGIN!!! {dir(scoped_workunit)}')
+  # stdout_fd = scoped_workunit.output('stdout').fileno()
+  # stderr_fd = scoped_workunit.output('stderr').fileno()
   execute_process_request = ExecuteProcessRequest(
     argv=tuple(argv),
+    # argv=tuple(['/bin/echo', 'hello']),
     env=env,
     input_files=merged_digest,
     description=f"Create a PEX with sources and requirements: {', '.join(request.requirements)}",
     output_files=(f'./{request.output_filename}',),
   )
-
   result = yield Get(ExecuteProcessResult, ExecuteProcessRequest, execute_process_request)
+  # logger.info(f'END!!! {result}')
+  workunit_contextmanager.__exit__(None, None, None)
+
   yield RequirementsPex(directory_digest=result.output_directory_digest)
 
 
