@@ -128,8 +128,9 @@ def create_python_binary(python_binary_target, python_setup, source_root_config,
         single_req = str(py_req.requirement)
         all_reqs_for_this_target.append(single_req)
 
-    fp = hash(tuple(all_reqs_for_this_target))
-    for single_req in all_reqs_for_this_target:
+    all_non_pex_reqs = filter(lambda r: not r.startswith('pex'), all_reqs_for_this_target)
+    fp = str(hash(tuple(all_non_pex_reqs)))
+    for single_req in all_non_pex_reqs:
       all_target_requirements[single_req] = fp
 
   all_requirements = list(all_target_requirements.keys())

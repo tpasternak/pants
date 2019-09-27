@@ -40,13 +40,9 @@ class BinaryError(Exception):
 
 @console_rule(Binary, [Console, BuildFileAddresses])
 def binary(console, addresses):
-  try:
-    address = assert_single_element(list(addresses))
-  except (StopIteration, ValueError):
-    raise RunError(f"the `run` goal requires exactly one top-level target! received: {addresses}")
-  result = yield Get(BinaryResult, Address, address.to_address())
-
-  console.write_stdout(f"binary produced at: {result.buildroot_relative_path}!\n")
+  for address in addresses:
+    result = yield Get(BinaryResult, Address, address.to_address())
+    console.write_stdout(f"binary for {address} produced at: {result.buildroot_relative_path}!\n")
 
   yield Binary(0)
 

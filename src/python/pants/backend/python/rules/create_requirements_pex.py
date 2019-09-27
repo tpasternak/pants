@@ -83,7 +83,10 @@ def create_requirements_pex(request, pex_bin, python_setup, python_repos, pex_bu
     request.output_filename,
     # FIXME: interpreter constraints don't play well with pexrc configuration in some internal
     # repos!
-    '--python=python3.7',
+    '--python=python3.6',
+    '--disable-cache',
+    '--no-compile',
+    '--no-use-system-time',
   ]
 
   # argv.append('--no-index')
@@ -95,8 +98,6 @@ def create_requirements_pex(request, pex_bin, python_setup, python_repos, pex_bu
     f'--repo={repo_url}'
     for repo_url in python_repos.repos
   )
-
-  argv.append('--disable-cache')
 
   if request.entry_point is not None:
     argv.extend(["--entry-point", request.entry_point])
