@@ -10,7 +10,7 @@ from pants.backend.python.subsystems.python_native_code import PexBuildEnvironme
 from pants.backend.python.subsystems.python_repos import PythonRepos
 from pants.backend.python.subsystems.python_setup import PythonSetup
 from pants.engine.isolated_process import ExecuteProcessRequest, ExecuteProcessResult
-from pants.engine.fs import EMPTY_DIRECTORY_DIGEST, Digest, DirectoriesToMerge
+from pants.engine.fs import EMPTY_DIRECTORY_DIGEST, Digest, DirectoriesToMerge, PathGlobs, Snapshot
 from pants.engine.rules import optionable_rule, rule
 from pants.engine.selectors import Get
 from pants.goal.run_tracker import RunTracker
@@ -28,12 +28,17 @@ class MakePexRequest(datatype([
   ('entry_point', string_optional),
   ('input_files_digest', Exactly(Digest, type(None))),
   ('source_dirs', hashable_string_list),
+  ('previous_incremental_pex', string_optional),
+  ('fingerprinted_incremental_inputs', string_optional),
 ])):
 
   def __new__(cls, output_filename, requirements, interpreter_constraints, entry_point,
-              input_files_digest=None, source_dirs=()):
+              input_files_digest=None, source_dirs=(), previous_incremental_pex=None,
+              fingerprinted_incremental_inputs=None):
     return super().__new__(cls, output_filename, requirements, interpreter_constraints, entry_point,
-                           input_files_digest=input_files_digest, source_dirs=source_dirs)
+                           input_files_digest=input_files_digest, source_dirs=source_dirs,
+                           previous_incremental_pex=previous_incremental_pex,
+                           fingerprinted_incremental_inputs=fingerprinted_incremental_inputs)
 
 
 class RequirementsPex(datatype([('directory_digest', Digest)])):
@@ -78,7 +83,7 @@ def create_requirements_pex(request, pex_bin, python_setup, python_repos, pex_bu
     request.output_filename,
     # FIXME: interpreter constraints don't play well with pexrc configuration in some internal
     # repos!
-    '--python=python3.6',
+    '--python=python3.7',
   ]
 
   # argv.append('--no-index')
@@ -91,8 +96,33 @@ def create_requirements_pex(request, pex_bin, python_setup, python_repos, pex_bu
     for repo_url in python_repos.repos
   )
 
+  argv.append('--disable-cache')
+
   if request.entry_point is not None:
     argv.extend(["--entry-point", request.entry_point])
+
+  if request.previous_incremental_pex:
+    previous_input_file = request.previous_incremental_pex
+    # raise Exception(f'previous_input_file: {previous_input_file}')
+    previous_pex_snapshot = yield Get(Snapshot, PathGlobs(include=[previous_input_file]))
+    # raise Exception(f'previous_pex_snapshot: {previous_pex_snapshot}')
+    previous_pex_digest = previous_pex_snapshot.directory_digest
+    argv.append(f'--merge-from-existing-incremental-pex={request.previous_incremental_pex}')
+  else:
+    previous_pex_digest = None
+
+  if request.fingerprinted_incremental_inputs:
+    input_json = request.fingerprinted_incremental_inputs
+    echo_file_result = yield Get(ExecuteProcessResult, ExecuteProcessRequest(
+      argv=tuple(['/bin/sh', '-c', f'echo \'{input_json}\' > incremental-input.json']),
+      input_files=EMPTY_DIRECTORY_DIGEST,
+      description='???',
+      output_files=tuple(['./incremental-input.json']),
+    ))
+    fingerprinted_incremental_inputs_digest = echo_file_result.output_directory_digest
+    argv.append('--with-fingerprinted-incremental-inputs=./incremental-input.json')
+  else:
+    fingerprinted_incremental_inputs_digest = None
 
   # FIXME: interpreter constraints don't play well with pexrc configuration in some internal repos!
   # argv.extend(interpreter_constraint_args)
@@ -103,7 +133,10 @@ def create_requirements_pex(request, pex_bin, python_setup, python_repos, pex_bu
     for src_dir in request.source_dirs
   )
 
-  all_inputs = (pex_bin.directory_digest,) + ((request.input_files_digest,) if request.input_files_digest else ())
+  all_inputs = (pex_bin.directory_digest,) + (
+    (request.input_files_digest,) if request.input_files_digest else ()) + (
+      (previous_pex_digest,) if previous_pex_digest else ()) + (
+        (fingerprinted_incremental_inputs_digest,) if fingerprinted_incremental_inputs_digest else ())
   merged_digest = yield Get(Digest, DirectoriesToMerge(directories=all_inputs))
 
   workunit_contextmanager = run_tracker.new_workunit(name='python-with-output-run')
@@ -113,10 +146,9 @@ def create_requirements_pex(request, pex_bin, python_setup, python_repos, pex_bu
   # stderr_fd = scoped_workunit.output('stderr').fileno()
   execute_process_request = ExecuteProcessRequest(
     argv=tuple(argv),
-    # argv=tuple(['/bin/echo', 'hello']),
     env=env,
     input_files=merged_digest,
-    description=f"Create a PEX with sources and requirements: {', '.join(request.requirements)}",
+    description=f"Create a PEX with sources and requirements: [{', '.join(request.requirements)}]",
     output_files=(f'./{request.output_filename}',),
   )
   result = yield Get(ExecuteProcessResult, ExecuteProcessRequest, execute_process_request)

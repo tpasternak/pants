@@ -1,6 +1,7 @@
 # Copyright 2019 Pants project contributors (see CONTRIBUTORS.md).
 # Licensed under the Apache License, Version 2.0 (see LICENSE).
 
+import json
 import os
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
@@ -14,10 +15,12 @@ from pants.engine.fs import Digest, DirectoriesToMerge, DirectoryWithPrefixToStr
 from pants.engine.isolated_process import ExecuteProcessRequest, FallibleExecuteProcessResult
 from pants.engine.legacy.graph import BuildFileAddresses, TransitiveHydratedTargets
 from pants.engine.legacy.structs import PythonTargetAdaptor
-from pants.engine.rules import UnionRule, rule
+from pants.engine.rules import UnionRule, optionable_rule, rule
 from pants.engine.selectors import Get
+from pants.option.custom_types import file_option
 from pants.rules.core.run import RunResult, RunTarget
 from pants.source.source_root import SourceRoot, SourceRootConfig
+from pants.subsystem.subsystem import Subsystem
 from pants.util.strutil import create_path_env_var
 
 
@@ -28,8 +31,18 @@ class RunnablePex:
   exe_env: Dict[Any, Any]
 
 
-@rule(RunnablePex, [PythonTargetAdaptor, PythonSetup, SourceRootConfig, SubprocessEncodingEnvironment])
-def create_python_binary(python_binary_target, python_setup, source_root_config, subprocess_encoding_environment):
+class IncrementalPexCreation(Subsystem):
+  options_scope = 'incremental-pex-creation'
+
+  @classmethod
+  def register_options(cls, register):
+    super().register_options(register)
+    register('--previous-incremental-pex', type=file_option, default=None, fingerprint=True,
+             help='???')
+
+
+@rule(RunnablePex, [PythonTargetAdaptor, PythonSetup, SourceRootConfig, SubprocessEncodingEnvironment, IncrementalPexCreation])
+def create_python_binary(python_binary_target, python_setup, source_root_config, subprocess_encoding_environment, incremental_pex_creation):
   # TODO(7726): replace this with a proper API to get the `closure` for a
   # TransitiveHydratedTarget.
   transitive_hydrated_targets = yield Get(
@@ -49,7 +62,7 @@ def create_python_binary(python_binary_target, python_setup, source_root_config,
   # TODO: make TargetAdaptor return a 'sources' field with an empty snapshot instead of raising to
   # simplify the hasattr() checks here!
   source_roots = source_root_config.get_source_roots()
-  sources_digest_to_source_roots: Dict[Digest, Optional[SourceRoot]] = {}
+  sources_digest_to_source_roots = {}
 
   for maybe_source_target in all_targets:
     if not hasattr(maybe_source_target, 'sources'):
@@ -63,11 +76,16 @@ def create_python_binary(python_binary_target, python_setup, source_root_config,
       # filesystem APIs may still access the files. See pex_build_util.py's `_create_source_dumper`.
       source_root = None
     source_root_prefix = source_root.path if source_root else ""
-    sources_digest_to_source_roots[digest] = source_root_prefix
+    rel_spec_path = os.path.relpath(spec_path, source_root_prefix)
+    sources_digest_to_source_roots[digest] = (
+      source_root_prefix,
+      rel_spec_path,
+      digest.fingerprint,
+    )
 
   stripped_sources_digests = yield [
     Get(Digest, DirectoryWithPrefixToStrip(directory_digest=digest, prefix=source_root))
-    for digest, source_root in sources_digest_to_source_roots.items()
+    for digest, (source_root, _rel_path, _hash) in sources_digest_to_source_roots.items()
   ]
 
   sources_digest = yield Get(
@@ -97,17 +115,24 @@ def create_python_binary(python_binary_target, python_setup, source_root_config,
 
   # Produce a pex containing pytest and all transitive 3rdparty requirements.
   output_thirdparty_requirements_pex_filename = f'{python_binary_target.address.target_name}.pex'
-  all_target_requirements = []
+  all_target_requirements = {}
   for maybe_python_req_lib in all_targets:
+    all_reqs_for_this_target = []
     # This is a python_requirement()-like target.
     if hasattr(maybe_python_req_lib, 'requirement'):
-      all_target_requirements.append(str(maybe_python_req_lib.requirement))
+      single_req = str(maybe_python_req_lib.requirement)
+      all_reqs_for_this_target.append(single_req)
     # This is a python_requirement_library()-like target.
     if hasattr(maybe_python_req_lib, 'requirements'):
       for py_req in maybe_python_req_lib.requirements:
-        all_target_requirements.append(str(py_req.requirement))
+        single_req = str(py_req.requirement)
+        all_reqs_for_this_target.append(single_req)
 
-  all_requirements = all_target_requirements
+    fp = hash(tuple(all_reqs_for_this_target))
+    for single_req in all_reqs_for_this_target:
+      all_target_requirements[single_req] = fp
+
+  all_requirements = list(all_target_requirements.keys())
   resolved_requirements_pex = yield Get(
     RequirementsPex, MakePexRequest(
       output_filename=output_thirdparty_requirements_pex_filename,
@@ -116,6 +141,14 @@ def create_python_binary(python_binary_target, python_setup, source_root_config,
       entry_point=getattr(python_binary_target, 'entry_point', None),
       input_files_digest=merged_input_files,
       source_dirs=tuple(['.']),
+      previous_incremental_pex=incremental_pex_creation.get_options().previous_incremental_pex,
+      fingerprinted_incremental_inputs=json.dumps({
+        'sources': {
+          rel_path: fp
+          for _digest, (_source_root, rel_path, fp) in sources_digest_to_source_roots.items()
+        },
+        'requirements': all_target_requirements,
+      }),
     )
   )
 
@@ -154,4 +187,5 @@ def rules():
     create_python_binary,
     run_python_binary,
     UnionRule(RunTarget, PythonTargetAdaptor),
+    optionable_rule(IncrementalPexCreation),
   ]
