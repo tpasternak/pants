@@ -36,7 +36,7 @@ def download_pex_bin(pex_bin_settings):
     assert hardcoded_length is not None
     snapshot = yield Get(Snapshot, Digest(maybe_hardcoded_digest, hardcoded_length))
   else:
-    url, digest = pex_bin_settings.get_options().url_fetch_digests.items()[0]
+    url, digest = list(pex_bin_settings.get_options().url_fetch_digests.items())[0]
     snapshot = yield Get(Snapshot, UrlToFetch(url, digest))
   yield DownloadedPexBin(executable=snapshot.files[0], directory_digest=snapshot.directory_digest)
 

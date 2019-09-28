@@ -76,7 +76,7 @@ def create_requirements_pex(request, pex_bin, python_setup, python_repos, pex_bu
   # TODO(#7735): Set --python-setup-interpreter-search-paths differently for the host and target
   # platforms, when we introduce platforms in https://github.com/pantsbuild/pants/issues/7735.
   argv = [
-    "python",
+    "python3.6",
     f"./{pex_bin.executable}",
     '-vvvvvvvvv',
     "--output-file",
@@ -87,6 +87,9 @@ def create_requirements_pex(request, pex_bin, python_setup, python_repos, pex_bu
     '--disable-cache',
     '--no-compile',
     '--no-use-system-time',
+  ] + [
+    f'--platform={plat}'
+    for plat in python_setup.platforms
   ]
 
   # argv.append('--no-index')
