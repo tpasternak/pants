@@ -2,7 +2,7 @@
 # Copyright 2014 Pants project contributors (see CONTRIBUTORS.md).
 # Licensed under the Apache License, Version 2.0 (see LICENSE).
 
-set -e
+set -ex
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")" && cd "$(git rev-parse --show-toplevel)" && pwd)
 
@@ -632,6 +632,7 @@ function build_pex() {
   # from polluting stderr we pass `--no-emit-warnings`.
   execute_pex \
     -o "${dest}" \
+    -vvvvvvvvv \
     --no-emit-warnings \
     --script=pants \
     --interpreter-constraint="${interpreter_constraint}" \
