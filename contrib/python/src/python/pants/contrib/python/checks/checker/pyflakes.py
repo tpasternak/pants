@@ -4,9 +4,14 @@
 
 from __future__ import absolute_import, division, print_function, unicode_literals
 
+import logging
+
 from pyflakes.checker import Checker as FlakesChecker
 
 from pants.contrib.python.checks.checker.common import CheckstylePlugin, Nit
+
+
+logger = logging.getLogger(__name__)
 
 
 class FlakeError(Nit):
@@ -41,7 +46,11 @@ class FlakeError(Nit):
 
   @classmethod
   def get_error_code(cls, message):
-    return cls.CLASS_ERRORS.get(message.__class__.__name__, 'F999')
+    err = cls.CLASS_ERRORS.get(message.__class__.__name__)
+    if err is None:
+      logger.info(f'>>> no error code for {message.__class__.__name__}')
+      return 'F999'
+    return err
 
 
 class PyflakesChecker(CheckstylePlugin):
