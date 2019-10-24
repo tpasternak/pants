@@ -201,7 +201,7 @@ impl From<ExecuteProcessRequest> for MultiPlatformExecuteProcessRequest {
 /// externally from the engine graph (e.g. when using remote execution or an external process
 /// cache).
 ///
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct ExecuteProcessRequestMetadata {
   pub instance_name: Option<String>,
   pub cache_key_gen_version: Option<String>,

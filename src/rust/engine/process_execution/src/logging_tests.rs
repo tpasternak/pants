@@ -1,7 +1,7 @@
 use crate::logging::{DigestAndEntryType, LogEntry};
 use crate::{
-  CommandRunner, Context, ExecuteProcessRequest, FallibleExecuteProcessResult,
-  MultiPlatformExecuteProcessRequest, Platform,
+  CommandRunner, Context, ExecuteProcessRequest, ExecuteProcessRequestMetadata,
+  FallibleExecuteProcessResult, MultiPlatformExecuteProcessRequest, Platform,
 };
 use boxfuture::{BoxFuture, Boxable};
 use bytes::Bytes;
@@ -58,6 +58,7 @@ fn writes_line_per_execution() {
     .unwrap();
 
   let command_runner = crate::logging::CommandRunner {
+    metadata: ExecuteProcessRequestMetadata::default(),
     delegate: Arc::new(stub_command_runner),
     store: store,
   };
@@ -102,6 +103,13 @@ fn writes_line_per_execution() {
     found,
     vec![
       LogEntry {
+        action_digest: hashing::Digest(
+          hashing::Fingerprint::from_hex_string(
+            "9293f4b13b6b7b6c3e56338b8f0d26cc833879241249f29c8dce72206893515b"
+          )
+          .unwrap(),
+          140
+        ),
         flattened_input_digests: btreeset![
           DigestAndEntryType {
             digest: TestDirectory::nested().digest(),
@@ -119,6 +127,13 @@ fn writes_line_per_execution() {
         flattened_output_digests: Some(btreeset![empty_dir.clone()]),
       },
       LogEntry {
+        action_digest: hashing::Digest(
+          hashing::Fingerprint::from_hex_string(
+            "558ff8b91cdb3566f24c00e3350e42b926bfce513ae5a962968a78679aa70614"
+          )
+          .unwrap(),
+          138
+        ),
         flattened_input_digests: btreeset![empty_dir.clone()],
         flattened_output_digests: Some(btreeset![
           DigestAndEntryType {

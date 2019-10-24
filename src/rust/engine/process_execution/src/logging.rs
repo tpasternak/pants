@@ -38,6 +38,7 @@ impl Ord for DigestAndEntryType {
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub struct LogEntry {
+  pub action_digest: Digest,
   pub flattened_input_digests: BTreeSet<DigestAndEntryType>,
   pub flattened_output_digests: Option<BTreeSet<DigestAndEntryType>>,
 }
@@ -45,6 +46,7 @@ pub struct LogEntry {
 pub struct CommandRunner {
   pub delegate: Arc<dyn crate::CommandRunner>,
   pub store: store::Store,
+  pub metadata: crate::ExecuteProcessRequestMetadata,
 }
 
 impl crate::CommandRunner for CommandRunner {
@@ -54,7 +56,9 @@ impl crate::CommandRunner for CommandRunner {
     context: Context,
   ) -> BoxFuture<FallibleExecuteProcessResult, String> {
     let compatible_request = self.extract_compatible_request(&req).expect("TODO");
+    let input_files = compatible_request.input_files;
     let store = self.store.clone();
+    let metadata = self.metadata.clone();
 
     self
       .delegate
@@ -73,16 +77,20 @@ impl crate::CommandRunner for CommandRunner {
           futures::future::ok(response)
             .join(
               store
-                .expand_transitive_digests(
-                  vec![compatible_request.input_files],
-                  context.workunit_store.clone(),
-                )
+                .expand_transitive_digests(vec![input_files], context.workunit_store.clone())
                 .join(output_future),
             )
             .and_then(
               move |(response, (flattened_input_digests, flattened_output_digests))| {
                 if let Some(logfile) = context.stats_logfile.as_ref() {
+                  let (_action, _command, req) =
+                    crate::remote::make_execute_request(&compatible_request, metadata).unwrap();
+                  let action_digest: Result<hashing::Digest, String> =
+                    req.get_action_digest().into();
+                  let action_digest = action_digest?;
+
                   let log_entry = LogEntry {
+                    action_digest,
                     flattened_input_digests: flattened_input_digests
                       .into_iter()
                       .map(|(digest, entry_type)| DigestAndEntryType { digest, entry_type })

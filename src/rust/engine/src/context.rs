@@ -199,13 +199,14 @@ impl Core {
         underlying: command_runner.into(),
         process_execution_store,
         file_store: store.clone(),
-        metadata: process_execution_metadata,
+        metadata: process_execution_metadata.clone(),
       })
     }
 
     command_runner = Box::new(process_execution::logging::CommandRunner {
       delegate: command_runner.into(),
       store: store.clone(),
+      metadata: process_execution_metadata,
     });
 
     let http_client = reqwest::r#async::Client::new();
