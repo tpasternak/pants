@@ -443,8 +443,9 @@ impl super::CommandRunner for CommandRunner {
           )
           .inspect(move |resp| {
             debug!(
-              "Finished remote execution of {} after {} attempts: Stats: {}",
+              "Finished remote execution of {} (action digest: {:?}) after {} attempts: Stats: {}",
               description2,
+              action_digest,
               resp.execution_attempts.len(),
               resp.execution_attempts.iter().enumerate().map(|(i, attempt)| format!("\nAttempt {}: {:?}", i, attempt)).collect::<Vec<_>>().join(""),
             );
