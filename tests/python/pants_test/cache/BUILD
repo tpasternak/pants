@@ -21,6 +21,7 @@ python_tests(
     'src/python/pants/invalidation',
     'src/python/pants/util:contextutil',
     'src/python/pants/util:dirutil',
+    'tests/python/pants_test/subsystem:subsystem_utils',
     'tests/python/pants_test:test_base',
   ]
 )
@@ -89,7 +90,6 @@ python_tests(
   sources = ['test_resolver.py'],
   dependencies = [
     'src/python/pants/cache',
-    'tests/python/pants_test/subsystem:subsystem_utils',
   ]
 )
 
