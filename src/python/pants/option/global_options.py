@@ -192,7 +192,8 @@ class GlobalOptionsRegistrar(SubsystemClientMixin, Optionable):
                       'pants.backend.codegen.thrift.python',
                       'pants.backend.codegen.grpcio.python',
                       'pants.backend.codegen.wire.java',
-                      'pants.backend.project_info'],
+                      'pants.backend.project_info',
+                      'pants.cache'],
              help='Load backends from these packages that are already on the path. '
                   'Add contrib and custom backends to this list.')
 
