@@ -13,7 +13,7 @@ from pants.base.specs import SingleAddress, Specs
 from pants.base.target_roots import TargetRoots
 from pants.engine.addressable import BuildFileAddresses
 from pants.engine.legacy.graph import OwnersRequest
-from pants.engine.query import (QueryParser, QueryParseResult, QueryParseInput, QueryOutput, QueryPipeline, QueryPipelineRequest)
+from pants.engine.query import (InitialBuildFileAddresses, InitialSpecs, QueryParser, QueryParseResult, QueryParseInput, QueryOutput, QueryPipeline, QueryPipelineRequest)
 from pants.engine.rules import RootRule, rule
 from pants.engine.selectors import Get, Params
 from pants.option.options import Options
@@ -91,9 +91,10 @@ class TargetRootsRequest:
   tags: Tuple[str, ...]
 
 
-@dataclass(frozen=True)
-class InitialSpecs:
-  specs: Specs
+@rule
+def get_initial_bfa(init_specs: InitialSpecs) -> InitialBuildFileAddresses:
+  bfa = yield Get(BuildFileAddresses, Specs, (init_specs.specs or Specs([])))
+  yield InitialBuildFileAddresses(bfa)
 
 
 @rule
@@ -199,10 +200,9 @@ def get_target_roots(target_roots_request: TargetRootsRequest) -> TargetRoots:
   query_pipeline = QueryPipeline(tuple(
     expr.parser for expr in exprs
   ))
-  spec_addresses = yield Get(BuildFileAddresses, Specs, initial_specs.specs or Specs([]))
   query_output = yield Get(QueryOutput, QueryPipelineRequest(
     pipeline=query_pipeline,
-    input_addresses=spec_addresses,
+    input_specs=initial_specs,
   ))
   expr_addresses = query_output.build_file_addresses
   logger.debug('expr addresses: %s', expr_addresses)
@@ -217,4 +217,5 @@ def rules():
     RootRule(TargetRootsRequest),
     resolve_starting_specs,
     get_target_roots,
+    get_initial_bfa,
   ]

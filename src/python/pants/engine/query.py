@@ -7,7 +7,7 @@ from typing import Dict, Tuple, Type, TypeVar
 
 from twitter.common.collections import OrderedSet
 
-
+from pants.base.specs import SingleAddress, Specs
 from pants.engine.addressable import BuildFileAddresses
 from pants.engine.legacy.graph import OwnersRequest
 from pants.engine.rules import UnionMembership, UnionRule, RootRule, rule, union
@@ -144,9 +144,9 @@ class NoopOperator(Operator):
     return NoopOperands(build_file_addresses)
 
 
-@rule
-def hydrate_noop(noop: Noop) -> HydratedOperator:
-  return HydratedOperator(noop.get_noop_operator())
+# @rule
+# def hydrate_noop(noop: Noop) -> HydratedOperator:
+#   return HydratedOperator(noop.get_noop_operator())
 
 
 @dataclass(frozen=True)
@@ -178,16 +178,16 @@ class IntersectionOperator(Operator):
                                 rhs=build_file_addresses)
 
 
-@rule
-def addresses_intersection_operator(build_file_addresses: BuildFileAddresses) -> HydratedOperator:
-  # TODO: this `return` is fine -- but if we had a `yield Get(...)` anywhere, it would raise a
-  # `StopIteration` (a very opaque error message), inside a massive stack trace which reports every
-  # single element of the `BuildFileAddresses` provided as input!
-  # (1) Fix the error message for an accidental `return` somehow!
-  # (2) Cut off printing the stack trace elements when they get too long! This may be done with a
-  # `.print_for_stacktrace()` element on `datatype` which adds ellipses when the string gets too
-  # long!
-  return HydratedOperator(IntersectionOperator(build_file_addresses))
+# @rule
+# def addresses_intersection_operator(build_file_addresses: BuildFileAddresses) -> HydratedOperator:
+#   # TODO: this `return` is fine -- but if we had a `yield Get(...)` anywhere, it would raise a
+#   # `StopIteration` (a very opaque error message), inside a massive stack trace which reports every
+#   # single element of the `BuildFileAddresses` provided as input!
+#   # (1) Fix the error message for an accidental `return` somehow!
+#   # (2) Cut off printing the stack trace elements when they get too long! This may be done with a
+#   # `.print_for_stacktrace()` element on `datatype` which adds ellipses when the string gets too
+#   # long!
+#   return HydratedOperator(IntersectionOperator(build_file_addresses))
 
 
 @dataclass(frozen=True)
@@ -212,8 +212,18 @@ def apply_intersection(operands: IntersectionOperands) -> IntermediateResults:
 
 
 @dataclass(frozen=True)
+class InitialSpecs:
+  specs: Specs
+
+
+@dataclass(frozen=True)
+class InitialBuildFileAddresses:
+  build_file_addresses: BuildFileAddresses
+
+
+@dataclass(frozen=True)
 class QueryPipeline:
-  query_components: Tuple[QueryParser, ...]
+  exprs: Tuple[QueryParser, ...]
 
 
 @dataclass(frozen=True)
@@ -224,24 +234,25 @@ class QueryOutput:
 @dataclass(frozen=True)
 class QueryPipelineRequest:
   pipeline: QueryPipeline
-  input_addresses: BuildFileAddresses
+  input_specs: InitialSpecs
 
 
 @rule
 def process_query_pipeline(query_pipeline_request: QueryPipelineRequest) -> QueryOutput:
   query_pipeline = query_pipeline_request.pipeline
-  build_file_addresses = query_pipeline_request.input_addresses
-  for component in query_pipeline.query_components:
-    cur_owners_request = yield Get(OwnersRequest, OwnerOf, component)
-    # cur_owners_request = yield Get(OwnersRequest, QueryParser, component)
-    raise Exception('wow!!!')
-    cur_addresses = yield Get(BuildFileAddresses, OwnersRequest, cur_owners_request)
-    hydrated_operator = yield Get(HydratedOperator, BuildFileAddresses, cur_addresses)
+  initial_build_file_addresses = yield Get(InitialBuildFileAddresses, InitialSpecs, query_pipeline_request.input_specs)
+  build_file_addresses = initial_build_file_addresses.build_file_addresses
+  for expr in query_pipeline.exprs:
+    raise Exception(f'wow!!! {expr}')
+    # cur_owners_request = yield Get(OwnersRequest, OwnerOf, expr)
+    # cur_addresses = yield Get(BuildFileAddresses, OwnersRequest, cur_owners_request)
+    # hydrated_operator = yield Get(HydratedOperator, BuildFileAddresses, cur_addresses)
     # hydrated_operator = yield Get(HydratedOperator, QueryParser, component)
+    raise Exception(f'wow!!! {cur_owners_request}')
     operator_with_input = hydrated_operator.operator.hydrate_with_input(build_file_addresses)
     # FIXME: THIS SHOULD WORK????!!!
     # results = yield Get(IntermediateResults, QueryOperation, operator_with_input)
-    results = yield Get(IntermediateResults, IntersectionOperands, operator_with_input)
+    # results = yield Get(IntermediateResults, IntersectionOperands, operator_with_input)
     build_file_addresses = results.build_file_addresses
   yield QueryOutput(build_file_addresses)
 
@@ -299,10 +310,10 @@ def parse_query_expr(s: QueryParseInput, known: KnownQueryExpressions) -> QueryP
 
 def rules():
   return [
-    # RootRule(ChangesForDiffspec),
-    # RootRule(ChangesSince),
-    # RootRule(IntersectionOperands),
-    # RootRule(OwnerOf),
+    RootRule(ChangesForDiffspec),
+    RootRule(ChangesSince),
+    RootRule(IntersectionOperands),
+    RootRule(OwnerOf),
     RootRule(QueryParseInput),
     RootRule(QueryPipelineRequest),
     UnionRule(OperatorRequest, ChangesForDiffspec),
@@ -317,7 +328,7 @@ def rules():
     UnionRule(QueryParser, OwnerOf),
     UnionRule(QueryOperation, IntersectionOperands),
     # UnionRule(QueryOperation, NoopOperands),
-    addresses_intersection_operator,
+    # addresses_intersection_operator,
     changes_for_diffspec_request,
     changes_since_request,
     # hydrate_noop,
