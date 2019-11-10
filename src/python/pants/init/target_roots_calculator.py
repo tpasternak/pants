@@ -13,7 +13,7 @@ from pants.base.specs import SingleAddress, Specs
 from pants.base.target_roots import TargetRoots
 from pants.engine.addressable import BuildFileAddresses
 from pants.engine.legacy.graph import OwnersRequest
-from pants.engine.query import (QueryParser, QueryParseInput, QueryOutput, QueryPipeline, QueryPipelineRequest)
+from pants.engine.query import (QueryParser, QueryParseResult, QueryParseInput, QueryOutput, QueryPipeline, QueryPipelineRequest)
 from pants.engine.rules import RootRule, rule
 from pants.engine.selectors import Get, Params
 from pants.option.options import Options
@@ -60,21 +60,22 @@ class TargetRootsCalculator:
     )
 
   @classmethod
-  def create(cls, options, session, symbol_table, build_root=None, exclude_patterns=None, tags=None):
+  def create(cls, options, session, build_root=None, exclude_patterns=None, tags=None):
     """
     :param Options options: An `Options` instance to use.
     :param session: The Scheduler session
-    # TODO: `symbol_table` is unused!!
-    :param symbol_table: The symbol table
     :param string build_root: The build root.
     """
 
     try:
-      target_roots, = session.product_request(TargetRoots, [TargetRootsRequest(
-        options=options,
-        build_root=build_root,
-        exclude_patterns=exclude_patterns,
-        tags=tags,
+      target_roots, = session.product_request(TargetRoots, [Params(
+        TargetRootsRequest(
+          options=options,
+          build_root=build_root,
+          exclude_patterns=exclude_patterns,
+          tags=tags,
+        ),
+        ScmRequest('The --query option'),
       )])
     except ScmRequestFailed as e:
       raise InvalidSpecConstraint(str(e))
@@ -84,10 +85,10 @@ class TargetRootsCalculator:
 
 @dataclass(frozen=True)
 class TargetRootsRequest:
-    options: Options
-    build_root: str
-    exclude_patterns: Tuple[str, ...]
-    tags: Tuple[str, ...]
+  options: Options
+  build_root: str
+  exclude_patterns: Tuple[str, ...]
+  tags: Tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -183,7 +184,7 @@ def get_target_roots(target_roots_request: TargetRootsRequest) -> TargetRoots:
   # Parse --query expressions into objects which can be resolved into BuildFileAddresses via v2
   # rules.
   query_expr_strings = options.for_global_scope().query
-  exprs = yield [Get(QueryParser, QueryParseInput(s)) for s in query_expr_strings]
+  exprs = yield [Get(QueryParseResult, QueryParseInput(s)) for s in query_expr_strings]
   logger.debug('query exprs are: %s', exprs)
 
   if not exprs:
@@ -195,8 +196,10 @@ def get_target_roots(target_roots_request: TargetRootsRequest) -> TargetRoots:
   # if len(exprs) > 1:
   #   raise ValueError('Only one --query argument is currently supported! Received: {}.'
   #                    .format(exprs))
-  query_pipeline = QueryPipeline(tuple(exprs))
-  spec_addresses = yield Get(BuildFileAddresses, Specs, initial_specs.specs)
+  query_pipeline = QueryPipeline(tuple(
+    expr.parser for expr in exprs
+  ))
+  spec_addresses = yield Get(BuildFileAddresses, Specs, initial_specs.specs or Specs([]))
   query_output = yield Get(QueryOutput, QueryPipelineRequest(
     pipeline=query_pipeline,
     input_addresses=spec_addresses,

@@ -102,6 +102,12 @@ class ChangedFilesResult:
   changed_files: Tuple[str, ...]
 
 
+@rule
+def get_changed_request_with_scm(scm_request: ScmRequest, changed_request: ChangedRequest) -> ChangedRequestWithScm:
+  return ChangedRequestWithScm(scm_request=scm_request,
+                               changed_request=changed_request)
+
+
 # TODO: ensure this rule isn't ever cached with an @ensure_daemon integration test!
 @rule
 def get_changed(changed_request_with_scm: ChangedRequestWithScm) -> ChangedFilesResult:
@@ -123,6 +129,8 @@ def get_changed(changed_request_with_scm: ChangedRequestWithScm) -> ChangedFiles
 def rules():
   return [
     try_get_scm,
-    RootRule(ChangedRequestWithScm),
+    RootRule(ChangedRequest),
+    RootRule(ScmRequest),
     get_changed,
+    get_changed_request_with_scm,
   ]

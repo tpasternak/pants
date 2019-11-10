@@ -323,8 +323,11 @@ class EngineInitializer:
     build_root = build_root or get_buildroot()
     build_configuration = build_configuration or BuildConfigInitializer.get(options_bootstrapper)
 
+    changed_rules_memoized = changed_rules()
     query_rules_memoized = query_rules()
-    build_configuration.register_rules(query_rules_memoized)
+    target_roots_calculator_rules_memoized = target_roots_calculator_rules()
+    build_configuration.register_rules(
+      changed_rules_memoized + query_rules_memoized + target_roots_calculator_rules_memoized)
 
     bootstrap_options = options_bootstrapper.bootstrap_options.for_global_scope()
 
@@ -389,9 +392,9 @@ class EngineInitializer:
       structs_rules() +
       # TODO: This should happen automatically, but most tests (e.g. tests/python/pants_test/auth) fail if it's not here:
       python_test_runner.rules() +
-      changed_rules() +
+      changed_rules_memoized +
       query_rules_memoized +
-      target_roots_calculator_rules() +
+      target_roots_calculator_rules_memoized +
       rules
     )
 

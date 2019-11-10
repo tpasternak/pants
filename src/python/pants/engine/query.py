@@ -201,14 +201,19 @@ class IntersectionOperands(QueryOperation):
     return IntermediateResults(BuildFileAddresses(tuple(lhs & rhs)))
 
 
+# FIXME: THIS SHOULD WORK????!!!
+# @rule
+# def apply_operands(operands: QueryOperation) -> IntermediateResults:
+#   return operands.apply()
+
 @rule
-def apply_operands(operands: QueryOperation) -> IntermediateResults:
+def apply_intersection(operands: IntersectionOperands) -> IntermediateResults:
   return operands.apply()
 
 
 @dataclass(frozen=True)
 class QueryPipeline:
-  operator_requests: Tuple[Operator, ...]
+  query_components: Tuple[QueryParser, ...]
 
 
 @dataclass(frozen=True)
@@ -226,10 +231,17 @@ class QueryPipelineRequest:
 def process_query_pipeline(query_pipeline_request: QueryPipelineRequest) -> QueryOutput:
   query_pipeline = query_pipeline_request.pipeline
   build_file_addresses = query_pipeline_request.input_addresses
-  for op_req in query_pipeline.operator_requests:
-    hydrated_operator = yield Get(HydratedOperator, OperatorRequest, op_req)
+  for component in query_pipeline.query_components:
+    cur_owners_request = yield Get(OwnersRequest, OwnerOf, component)
+    # cur_owners_request = yield Get(OwnersRequest, QueryParser, component)
+    raise Exception('wow!!!')
+    cur_addresses = yield Get(BuildFileAddresses, OwnersRequest, cur_owners_request)
+    hydrated_operator = yield Get(HydratedOperator, BuildFileAddresses, cur_addresses)
+    # hydrated_operator = yield Get(HydratedOperator, QueryParser, component)
     operator_with_input = hydrated_operator.operator.hydrate_with_input(build_file_addresses)
-    results = yield Get(IntermediateResults, QueryOperation, operator_with_input)
+    # FIXME: THIS SHOULD WORK????!!!
+    # results = yield Get(IntermediateResults, QueryOperation, operator_with_input)
+    results = yield Get(IntermediateResults, IntersectionOperands, operator_with_input)
     build_file_addresses = results.build_file_addresses
   yield QueryOutput(build_file_addresses)
 
@@ -258,9 +270,14 @@ class QueryParseInput:
 class QueryParseError(Exception): pass
 
 
+@dataclass(frozen=True)
+class QueryParseResult:
+  parser: QueryParser
+
+
 # FIXME: allow returning an @union!!!
 @rule
-def parse_query_expr(s: QueryParseInput, known: KnownQueryExpressions) -> QueryParser:
+def parse_query_expr(s: QueryParseInput, known: KnownQueryExpressions) -> QueryParseResult:
   """Shlex the input string and attempt to find a query function matching the first element.
 
   :param dict known_functions: A dict mapping `function_name` -> `QueryParser` subclass.
@@ -273,7 +290,7 @@ def parse_query_expr(s: QueryParseInput, known: KnownQueryExpressions) -> QueryP
   rest = args[1:]
   selected_function = known.components.get(name, None)
   if selected_function:
-    return selected_function.parse_from_args(*rest)
+    return QueryParseResult(selected_function.parse_from_args(*rest))
   else:
     raise QueryParseError(
       'Query function with name {} not found (in expr {})! The known functions are: {}'
@@ -282,16 +299,16 @@ def parse_query_expr(s: QueryParseInput, known: KnownQueryExpressions) -> QueryP
 
 def rules():
   return [
-    RootRule(ChangesForDiffspec),
-    RootRule(ChangesSince),
-    RootRule(IntersectionOperands),
-    RootRule(OwnerOf),
+    # RootRule(ChangesForDiffspec),
+    # RootRule(ChangesSince),
+    # RootRule(IntersectionOperands),
+    # RootRule(OwnerOf),
     RootRule(QueryParseInput),
     RootRule(QueryPipelineRequest),
     UnionRule(OperatorRequest, ChangesForDiffspec),
     UnionRule(OperatorRequest, ChangesSince),
     UnionRule(OperatorRequest, OwnerOf),
-    UnionRule(OperatorRequest, Noop),
+    # UnionRule(OperatorRequest, Noop),
     # FIXME: these aren't useful yet!!!
     # UnionRule(Operator, Noop),
     # UnionRule(Operator, IntersectionOperands),
@@ -299,13 +316,13 @@ def rules():
     UnionRule(QueryParser, ChangesSince),
     UnionRule(QueryParser, OwnerOf),
     UnionRule(QueryOperation, IntersectionOperands),
-    UnionRule(QueryOperation, NoopOperands),
+    # UnionRule(QueryOperation, NoopOperands),
     addresses_intersection_operator,
     changes_for_diffspec_request,
     changes_since_request,
-    hydrate_noop,
+    # hydrate_noop,
     known_query_expressions,
-    apply_operands,
+    apply_intersection,
     owner_of_request,
     parse_query_expr,
     process_query_pipeline,
