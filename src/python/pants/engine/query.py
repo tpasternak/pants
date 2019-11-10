@@ -2,6 +2,7 @@
 # Licensed under the Apache License, Version 2.0 (see LICENSE).
 
 import logging
+import re
 from abc import ABC, abstractmethod, abstractproperty
 from dataclasses import dataclass
 from typing import Callable, Dict, Optional, Tuple, Type, TypeVar
@@ -184,6 +185,43 @@ class TypeFilter(QueryParser):
   def quick_operator(self):
     return FilterOperator(
       lambda t: t.type_alias in self.allowed_type_aliases
+    )
+
+
+@dataclass(frozen=True)
+class AddressRegexFilter(QueryParser):
+  regexes: Tuple[str, ...]
+
+  function_name = 'no-regex'
+
+  @classmethod
+  def parse_from_args(cls, *regexes):
+    return cls(regexes=tuple(regexes))
+
+  def quick_operator(self):
+    return FilterOperator(
+      lambda t: not any(re.search(rx, t.address.spec)
+                        for rx in self.regexes)
+    )
+
+
+@dataclass(frozen=True)
+class TagRegexFilter(QueryParser):
+  tag_regexes: Tuple[str, ...]
+
+  function_name = 'no-tag-regex'
+
+  @classmethod
+  def parse_from_args(cls, *tag_regexes):
+    return cls(tag_regexes=tuple(tag_regexes))
+
+  def quick_operator(self):
+    return FilterOperator(
+      lambda t: not any(
+        re.search(rx, tag)
+        for rx in self.tag_regexes
+        for tag in t.tags
+      )
     )
 
 
@@ -405,7 +443,7 @@ def parse_query_expr(s: QueryParseInput, known: KnownQueryExpressions) -> QueryP
   else:
     raise QueryParseError(
       'Query function with name {} not found (in expr {})! The known functions are: {}'
-      .format(name, s, known_functions))
+      .format(name, s, known.components))
 
 
 def rules():
@@ -441,4 +479,6 @@ def rules():
     UnionRule(Operator, FilterOperator),
     UnionRule(QueryOperation, FilterOperands),
     hydrate_operands,
+    UnionRule(QueryParser, AddressRegexFilter),
+    UnionRule(QueryParser, TagRegexFilter),
   ]
