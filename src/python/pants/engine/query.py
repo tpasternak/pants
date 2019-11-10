@@ -1,9 +1,10 @@
 # Copyright 2019 Pants project contributors (see CONTRIBUTORS.md).
 # Licensed under the Apache License, Version 2.0 (see LICENSE).
 
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Dict, Tuple, Type, TypeVar
+from typing import Dict, Optional, Tuple, Type, TypeVar
 
 from twitter.common.collections import OrderedSet
 
@@ -15,6 +16,9 @@ from pants.engine.selectors import Get
 from pants.scm.subsystems.changed import (ChangedRequest, ChangedRequestWithScm, IncludeDependees, ScmRequest)
 from pants.util.meta import classproperty
 from pants.util.strutil import safe_shlex_split
+
+
+logger = logging.getLogger(__name__)
 
 
 @union
@@ -49,10 +53,8 @@ class OwnerOf(QueryParser):
   def parse_from_args(cls, *args):
     return cls(files=tuple([str(f) for f in args]))
 
-
-@rule
-def owner_of_request(owner_of: OwnerOf) -> OwnersRequest:
-  return OwnersRequest(sources=owner_of.files, include_dependees=IncludeDependees.none)
+  def as_owner_of_request(self) -> OwnersRequest:
+    return OwnersRequest(sources=self.files, include_dependees=IncludeDependees.none)
 
 
 @dataclass(frozen=True)
@@ -192,13 +194,17 @@ class IntersectionOperator(Operator):
 
 @dataclass(frozen=True)
 class IntersectionOperands(QueryOperation):
-  lhs: BuildFileAddresses
+  lhs: Optional[BuildFileAddresses]
   rhs: BuildFileAddresses
 
   def apply(self) -> IntermediateResults:
-    lhs = OrderedSet(self.lhs.dependencies)
-    rhs = OrderedSet(self.rhs.dependencies)
-    return IntermediateResults(BuildFileAddresses(tuple(lhs & rhs)))
+    if self.lhs is None:
+      ret = self.rhs.dependencies
+    else:
+      lhs = OrderedSet(self.lhs.dependencies)
+      rhs = OrderedSet(self.rhs.dependencies)
+      ret = lhs & rhs
+    return IntermediateResults(BuildFileAddresses(tuple(ret)))
 
 
 # FIXME: THIS SHOULD WORK????!!!
@@ -240,19 +246,24 @@ class QueryPipelineRequest:
 @rule
 def process_query_pipeline(query_pipeline_request: QueryPipelineRequest) -> QueryOutput:
   query_pipeline = query_pipeline_request.pipeline
-  initial_build_file_addresses = yield Get(InitialBuildFileAddresses, InitialSpecs, query_pipeline_request.input_specs)
-  build_file_addresses = initial_build_file_addresses.build_file_addresses
+  init_specs = query_pipeline_request.input_specs
+  build_file_addresses = None
+  if init_specs.specs is not None:
+    initial_build_file_addresses = yield Get(InitialBuildFileAddresses, InitialSpecs, init_specs)
+    build_file_addresses = initial_build_file_addresses.build_file_addresses
+    logger.debug(f'initial addresses: {build_file_addresses.addresses}')
   for expr in query_pipeline.exprs:
-    raise Exception(f'wow!!! {expr}')
-    # cur_owners_request = yield Get(OwnersRequest, OwnerOf, expr)
-    # cur_addresses = yield Get(BuildFileAddresses, OwnersRequest, cur_owners_request)
-    # hydrated_operator = yield Get(HydratedOperator, BuildFileAddresses, cur_addresses)
+    logger.debug(f'expr: {expr}')
+    cur_owners_request = expr.as_owner_of_request()
+    cur_addresses = yield Get(BuildFileAddresses, OwnersRequest, cur_owners_request)
+    logger.debug(f'cur_addresses: {cur_addresses.addresses}')
+    dehydrated_operator = IntersectionOperator(build_file_addresses)
     # hydrated_operator = yield Get(HydratedOperator, QueryParser, component)
-    raise Exception(f'wow!!! {cur_owners_request}')
-    operator_with_input = hydrated_operator.operator.hydrate_with_input(build_file_addresses)
+    operator_with_input = dehydrated_operator.hydrate_with_input(cur_addresses)
+    logger.debug(f'operator_with_input: {operator_with_input}')
     # FIXME: THIS SHOULD WORK????!!!
     # results = yield Get(IntermediateResults, QueryOperation, operator_with_input)
-    # results = yield Get(IntermediateResults, IntersectionOperands, operator_with_input)
+    results = operator_with_input.apply()
     build_file_addresses = results.build_file_addresses
   yield QueryOutput(build_file_addresses)
 
@@ -334,7 +345,6 @@ def rules():
     # hydrate_noop,
     known_query_expressions,
     apply_intersection,
-    owner_of_request,
     parse_query_expr,
     process_query_pipeline,
   ]

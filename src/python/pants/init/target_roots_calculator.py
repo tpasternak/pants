@@ -80,6 +80,7 @@ class TargetRootsCalculator:
     except ScmRequestFailed as e:
       raise InvalidSpecConstraint(str(e))
 
+    logger.debug(f'target_roots: {target_roots}')
     return target_roots
 
 
@@ -205,11 +206,11 @@ def get_target_roots(target_roots_request: TargetRootsRequest) -> TargetRoots:
     input_specs=initial_specs,
   ))
   expr_addresses = query_output.build_file_addresses
-  logger.debug('expr addresses: %s', expr_addresses)
+  logger.debug('expr addresses: %s', expr_addresses.addresses)
   final_specs = TargetRootsCalculator._make_specs(
     expr_addresses, exclude_patterns=exclude_patterns, tags=tags)
 
-  yield TargetRoots([final_specs])
+  yield TargetRoots(final_specs)
 
 
 def rules():
