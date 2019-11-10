@@ -8,6 +8,7 @@ from typing import Any
 from pants.backend.docgen.targets.doc import Page
 from pants.backend.jvm.targets.jvm_app import JvmApp
 from pants.backend.jvm.targets.jvm_binary import JvmBinary
+from pants.backend.python.rules import python_test_runner
 from pants.backend.python.targets.python_app import PythonApp
 from pants.backend.python.targets.python_binary import PythonBinary
 from pants.backend.python.targets.python_library import PythonLibrary
@@ -28,7 +29,6 @@ from pants.engine.legacy.address_mapper import LegacyAddressMapper
 from pants.engine.legacy.graph import LegacyBuildGraph, create_legacy_graph_tasks
 from pants.engine.legacy.options_parsing import create_options_parsing_rules
 from pants.engine.legacy.parser import LegacyPythonCallbacksParser
-from pants.engine.legacy.query import rules as query_rules
 from pants.engine.legacy.structs import (AppAdaptor, JvmAppAdaptor, JvmBinaryAdaptor, PageAdaptor,
                                          PantsPluginAdaptor, PythonAppAdaptor, PythonBinaryAdaptor,
                                          PythonTargetAdaptor, PythonTestsAdaptor,
@@ -42,6 +42,7 @@ from pants.engine.rules import RootRule, UnionMembership, rule
 from pants.engine.scheduler import Scheduler
 from pants.engine.selectors import Params
 from pants.init.options_initializer import BuildConfigInitializer, OptionsInitializer
+from pants.init.target_roots_calculator import rules as target_roots_calculator_rules
 from pants.option.global_options import (DEFAULT_EXECUTION_OPTIONS, ExecutionOptions,
                                          GlobMatchErrorBehavior)
 from pants.scm.subsystems.changed import rules as changed_rules

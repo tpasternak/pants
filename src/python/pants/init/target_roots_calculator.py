@@ -3,6 +3,7 @@
 
 import logging
 from dataclasses import dataclass
+from typing import Tuple
 
 from twitter.common.collections import OrderedSet
 
@@ -12,13 +13,12 @@ from pants.base.specs import SingleAddress, Specs
 from pants.base.target_roots import TargetRoots
 from pants.engine.addressable import BuildFileAddresses
 from pants.engine.legacy.graph import OwnersRequest
-from pants.engine.query import (QueryComponent, QueryParseInput, QueryOutput, QueryPipeline, QueryPipelineRequest,
-                                parse_query_expr, query_expressions)
+from pants.engine.query import (QueryParser, QueryParseInput, QueryOutput, QueryPipeline, QueryPipelineRequest)
 from pants.engine.rules import RootRule, rule
-from pants.engine.selectors import Get, Params, Select
+from pants.engine.selectors import Get, Params
 from pants.option.options import Options
 from pants.scm.subsystems.changed import (ChangedRequest, ChangedRequestWithScm, IncludeDependees,
-                                          ScmRequest, ScmRequestFailed, ScmWrapper)
+                                          ScmRequest, ScmRequestFailed)
 
 
 logger = logging.getLogger(__name__)
@@ -183,8 +183,7 @@ def get_target_roots(target_roots_request: TargetRootsRequest) -> TargetRoots:
   # Parse --query expressions into objects which can be resolved into BuildFileAddresses via v2
   # rules.
   query_expr_strings = options.for_global_scope().query
-  known_functions = {expr.function_name: expr for expr in query_expressions()}
-  exprs = [parse_query_expr(known_functions, s) for s in query_expr_strings]
+  exprs = yield [Get(QueryParser, QueryParseInput(s)) for s in query_expr_strings]
   logger.debug('query exprs are: %s', exprs)
 
   if not exprs:
@@ -193,9 +192,9 @@ def get_target_roots(target_roots_request: TargetRootsRequest) -> TargetRoots:
   # TODO(#7346): deprecate --owner-of and --changed-* in favor of --query versions, allow
   # pipelining of successive query expressions with the command-line target specs as the initial
   # input!
-  if len(exprs) > 1:
-    raise ValueError('Only one --query argument is currently supported! Received: {}.'
-                     .format(exprs))
+  # if len(exprs) > 1:
+  #   raise ValueError('Only one --query argument is currently supported! Received: {}.'
+  #                    .format(exprs))
   query_pipeline = QueryPipeline(tuple(exprs))
   spec_addresses = yield Get(BuildFileAddresses, Specs, initial_specs.specs)
   query_output = yield Get(QueryOutput, QueryPipelineRequest(

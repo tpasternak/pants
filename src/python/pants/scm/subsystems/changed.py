@@ -1,7 +1,6 @@
 # Copyright 2016 Pants project contributors (see CONTRIBUTORS.md).
 # Licensed under the Apache License, Version 2.0 (see LICENSE).
 
-from enum import Enum
 from dataclasses import dataclass
 from typing import Any, Tuple
 
@@ -9,6 +8,7 @@ from pants.engine.rules import RootRule, rule
 from pants.goal.workspace import ScmWorkspace
 from pants.scm.scm import Scm
 from pants.subsystem.subsystem import Subsystem
+from pants.util.collections import Enum
 
 
 class IncludeDependees(Enum):

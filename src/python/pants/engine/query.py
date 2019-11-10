@@ -1,4 +1,3 @@
-# coding=utf-8
 # Copyright 2019 Pants project contributors (see CONTRIBUTORS.md).
 # Licensed under the Apache License, Version 2.0 (see LICENSE).
 
@@ -6,15 +5,20 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Dict, Tuple, Type, TypeVar
 
+from twitter.common.collections import OrderedSet
+
+
+from pants.engine.addressable import BuildFileAddresses
 from pants.engine.legacy.graph import OwnersRequest
 from pants.engine.rules import UnionMembership, UnionRule, RootRule, rule, union
-from pants.scm.subsystems.changed import ChangedRequest, IncludeDependees
+from pants.engine.selectors import Get
+from pants.scm.subsystems.changed import (ChangedRequest, ChangedRequestWithScm, IncludeDependees, ScmRequest)
 from pants.util.meta import classproperty
 from pants.util.strutil import safe_shlex_split
 
 
 @union
-class QueryComponent(ABC):
+class QueryParser(ABC):
 
   @classproperty
   @abstractmethod
@@ -36,7 +40,7 @@ class QueryComponent(ABC):
 
 
 @dataclass(frozen=True)
-class OwnerOf:
+class OwnerOf(QueryParser):
   files: Tuple[str]
 
   function_name = 'owner-of'
@@ -52,7 +56,7 @@ def owner_of_request(owner_of: OwnerOf) -> OwnersRequest:
 
 
 @dataclass(frozen=True)
-class ChangesSince:
+class ChangesSince(QueryParser):
   changes_since: str
   include_dependees: IncludeDependees
 
@@ -76,7 +80,7 @@ def changes_since_request(changes_since: ChangesSince) -> ChangedRequest:
 
 
 @dataclass(frozen=True)
-class ChangesForDiffspec:
+class ChangesForDiffspec(QueryParser):
   diffspec: str
   include_dependees: IncludeDependees
 
@@ -99,8 +103,138 @@ def changes_for_diffspec_request(changes_for_diffspec: ChangesForDiffspec) -> Ch
   )
 
 
+class Noop:
 
-_T = TypeVar('_T', bound=QueryComponent)
+  function_name = 'noop'
+
+  @classmethod
+  def parse_from_args(cls):
+    return cls()
+
+  def get_noop_operator(self):
+    return NoopOperator()
+
+
+
+@union
+class OperatorRequest: pass
+
+
+@union
+class Operator(ABC):
+  """???"""
+
+  @abstractmethod
+  def hydrate_with_input(self, build_file_addresses):
+    """
+    ???/produce an object containing build file addresses which has a single rule graph path to
+    IntermediateResults, AND which has:
+      UnionRule(QueryOperation, <type of object returned by hydrate()>)
+    """
+
+
+@dataclass(frozen=True)
+class HydratedOperator:
+  operator: Operator
+
+
+class NoopOperator(Operator):
+
+  def hydrate_with_input(self, build_file_addresses):
+    return NoopOperands(build_file_addresses)
+
+
+@rule
+def hydrate_noop(noop: Noop) -> HydratedOperator:
+  return HydratedOperator(noop.get_noop_operator())
+
+
+@dataclass(frozen=True)
+class IntermediateResults:
+  build_file_addresses: BuildFileAddresses
+
+
+@union
+class QueryOperation(ABC):
+
+  @abstractmethod
+  def apply(self) -> IntermediateResults: ...
+
+
+@dataclass(frozen=True)
+class NoopOperands(QueryOperation):
+  build_file_addresses: BuildFileAddresses
+
+  def apply(self) -> IntermediateResults:
+    return self.build_file_addresses
+
+
+@dataclass(frozen=True)
+class IntersectionOperator(Operator):
+  to_intersect: BuildFileAddresses
+
+  def hydrate_with_input(self, build_file_addresses):
+    return IntersectionOperands(lhs=self.to_intersect,
+                                rhs=build_file_addresses)
+
+
+@rule
+def addresses_intersection_operator(build_file_addresses: BuildFileAddresses) -> HydratedOperator:
+  # TODO: this `return` is fine -- but if we had a `yield Get(...)` anywhere, it would raise a
+  # `StopIteration` (a very opaque error message), inside a massive stack trace which reports every
+  # single element of the `BuildFileAddresses` provided as input!
+  # (1) Fix the error message for an accidental `return` somehow!
+  # (2) Cut off printing the stack trace elements when they get too long! This may be done with a
+  # `.print_for_stacktrace()` element on `datatype` which adds ellipses when the string gets too
+  # long!
+  return HydratedOperator(IntersectionOperator(build_file_addresses))
+
+
+@dataclass(frozen=True)
+class IntersectionOperands(QueryOperation):
+  lhs: BuildFileAddresses
+  rhs: BuildFileAddresses
+
+  def apply(self) -> IntermediateResults:
+    lhs = OrderedSet(self.lhs.dependencies)
+    rhs = OrderedSet(self.rhs.dependencies)
+    return IntermediateResults(BuildFileAddresses(tuple(lhs & rhs)))
+
+
+@rule
+def apply_operands(operands: QueryOperation) -> IntermediateResults:
+  return operands.apply()
+
+
+@dataclass(frozen=True)
+class QueryPipeline:
+  operator_requests: Tuple[Operator, ...]
+
+
+@dataclass(frozen=True)
+class QueryOutput:
+  build_file_addresses: BuildFileAddresses
+
+
+@dataclass(frozen=True)
+class QueryPipelineRequest:
+  pipeline: QueryPipeline
+  input_addresses: BuildFileAddresses
+
+
+@rule
+def process_query_pipeline(query_pipeline_request: QueryPipelineRequest) -> QueryOutput:
+  query_pipeline = query_pipeline_request.pipeline
+  build_file_addresses = query_pipeline_request.input_addresses
+  for op_req in query_pipeline.operator_requests:
+    hydrated_operator = yield Get(HydratedOperator, OperatorRequest, op_req)
+    operator_with_input = hydrated_operator.operator.hydrate_with_input(build_file_addresses)
+    results = yield Get(IntermediateResults, QueryOperation, operator_with_input)
+    build_file_addresses = results.build_file_addresses
+  yield QueryOutput(build_file_addresses)
+
+
+_T = TypeVar('_T', bound=QueryParser)
 
 
 @dataclass(frozen=True)
@@ -112,7 +246,7 @@ class KnownQueryExpressions:
 def known_query_expressions(union_membership: UnionMembership) -> KnownQueryExpressions:
   return KnownQueryExpressions({
     union_member.function_name: union_member
-    for union_member in union_membership.union_rules[QueryComponent]
+    for union_member in union_membership.union_rules[QueryParser]
   })
 
 
@@ -126,13 +260,13 @@ class QueryParseError(Exception): pass
 
 # FIXME: allow returning an @union!!!
 @rule
-def parse_query_expr(s: QueryParseInput, known: KnownQueryExpressions) -> QueryComponent:
+def parse_query_expr(s: QueryParseInput, known: KnownQueryExpressions) -> QueryParser:
   """Shlex the input string and attempt to find a query function matching the first element.
 
-  :param dict known_functions: A dict mapping `function_name` -> `QueryComponent` subclass.
+  :param dict known_functions: A dict mapping `function_name` -> `QueryParser` subclass.
   :param str s: The string argument provided to --query.
   :return: A query component which can be resolved into `BuildFileAddresses` in the v2 engine.
-  :rtype: `QueryComponent`
+  :rtype: `QueryParser`
   """
   args = safe_shlex_split(s.expr)
   name = args[0]
@@ -148,16 +282,31 @@ def parse_query_expr(s: QueryParseInput, known: KnownQueryExpressions) -> QueryC
 
 def rules():
   return [
-    RootRule(OwnerOf),
-    RootRule(ChangesSince),
-    RootRule(QueryParseInput),
     RootRule(ChangesForDiffspec),
-    known_query_expressions,
-    UnionRule(QueryComponent, OwnerOf),
-    UnionRule(QueryComponent, ChangesSince),
-    UnionRule(QueryComponent, ChangesForDiffspec),
-    owner_of_request,
-    changes_since_request,
+    RootRule(ChangesSince),
+    RootRule(IntersectionOperands),
+    RootRule(OwnerOf),
+    RootRule(QueryParseInput),
+    RootRule(QueryPipelineRequest),
+    UnionRule(OperatorRequest, ChangesForDiffspec),
+    UnionRule(OperatorRequest, ChangesSince),
+    UnionRule(OperatorRequest, OwnerOf),
+    UnionRule(OperatorRequest, Noop),
+    # FIXME: these aren't useful yet!!!
+    # UnionRule(Operator, Noop),
+    # UnionRule(Operator, IntersectionOperands),
+    UnionRule(QueryParser, ChangesForDiffspec),
+    UnionRule(QueryParser, ChangesSince),
+    UnionRule(QueryParser, OwnerOf),
+    UnionRule(QueryOperation, IntersectionOperands),
+    UnionRule(QueryOperation, NoopOperands),
+    addresses_intersection_operator,
     changes_for_diffspec_request,
+    changes_since_request,
+    hydrate_noop,
+    known_query_expressions,
+    apply_operands,
+    owner_of_request,
     parse_query_expr,
+    process_query_pipeline,
   ]
