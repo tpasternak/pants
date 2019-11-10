@@ -82,19 +82,3 @@ python_library(
     'src/python/pants/util:dirutil',
   ],
 )
-
-python_library(
-  name='query',
-  sources=['query.py'],
-  dependencies=[
-    '3rdparty/python:future',
-    '3rdparty/python/twitter/commons:twitter.common.collections',
-    ':graph',
-    'src/python/pants/engine:rules',
-    'src/python/pants/engine:selectors',
-    'src/python/pants/scm/subsystems:changed',
-    'src/python/pants/util:meta',
-    'src/python/pants/util:objects',
-    'src/python/pants/util:strutil',
-  ],
-)
