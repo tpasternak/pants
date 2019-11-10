@@ -2,15 +2,15 @@
 # Licensed under the Apache License, Version 2.0 (see LICENSE).
 
 import logging
-from abc import ABC, abstractmethod
+from abc import ABC, abstractmethod, abstractproperty
 from dataclasses import dataclass
-from typing import Dict, Optional, Tuple, Type, TypeVar
+from typing import Callable, Dict, Optional, Tuple, Type, TypeVar
 
 from twitter.common.collections import OrderedSet
 
 from pants.base.specs import SingleAddress, Specs
 from pants.engine.addressable import BuildFileAddresses
-from pants.engine.legacy.graph import OwnersRequest
+from pants.engine.legacy.graph import OwnersRequest, TransitiveHydratedTargets
 from pants.engine.rules import UnionMembership, UnionRule, RootRule, rule, union
 from pants.engine.selectors import Get
 from pants.scm.subsystems.changed import (ChangedRequest, ChangedRequestWithScm, IncludeDependees, ScmRequest)
@@ -23,6 +23,10 @@ logger = logging.getLogger(__name__)
 
 @union
 class QueryParser(ABC):
+
+  def quick_operator(self):
+    """???"""
+    return None
 
   @classproperty
   @abstractmethod
@@ -42,10 +46,52 @@ class QueryParser(ABC):
     This method should raise an error if the args are incorrect or invalid.
     """
 
+  def as_request(self):
+    """???"""
+    return None
+
+
+@dataclass(frozen=True)
+class QueryParseResult:
+  parser: QueryParser
+
+
+@union
+class AsBuildFileAddressesRequest: pass
+
+
+@union
+class Operator(ABC):
+  """???"""
+
+  def quick_hydrate_with_input(self, build_file_addresses):
+    """
+    ???/produce an object containing build file addresses which has a single rule graph path to
+    IntermediateResults, AND which has:
+      UnionRule(QueryOperation, <type of object returned by hydrate()>)
+    """
+    return None
+
+  def as_hydration_request(self, thts):
+    """???"""
+    return None
+
+
+@dataclass(frozen=True)
+class IntermediateResults:
+  build_file_addresses: BuildFileAddresses
+
+
+@union
+class QueryOperation(ABC):
+
+  @abstractmethod
+  def apply(self) -> IntermediateResults: ...
+
 
 @dataclass(frozen=True)
 class OwnerOf(QueryParser):
-  files: Tuple[str]
+  files: Tuple[str, ...]
 
   function_name = 'owner-of'
 
@@ -53,7 +99,7 @@ class OwnerOf(QueryParser):
   def parse_from_args(cls, *args):
     return cls(files=tuple([str(f) for f in args]))
 
-  def as_owner_of_request(self) -> OwnersRequest:
+  def as_request(self):
     return OwnersRequest(sources=self.files, include_dependees=IncludeDependees.none)
 
 
@@ -69,16 +115,14 @@ class ChangesSince(QueryParser):
     return cls(changes_since=str(changes_since),
                include_dependees=IncludeDependees(include_dependees))
 
-
-@rule
-def changes_since_request(changes_since: ChangesSince) -> ChangedRequest:
-  return ChangedRequest(
-    changes_since=changes_since.changes_since,
-    diffspec=None,
-    include_dependees=changes_since.include_dependees,
-    # TODO(#7346): parse --query expressions using the python ast module to support keyword args!
-    fast=True,
-  )
+  def as_request(self):
+    return ChangedRequest(
+      changes_since=sself.changes_since,
+      diffspec=None,
+      include_dependees=self.include_dependees,
+      # TODO(#7346): parse --query expressions using the python ast module to support keyword args!
+      fast=True,
+    )
 
 
 @dataclass(frozen=True)
@@ -93,16 +137,54 @@ class ChangesForDiffspec(QueryParser):
     return cls(diffspec=str(diffspec),
                include_dependees=IncludeDependees(include_dependees))
 
+  def as_request(self):
+    return ChangedRequest(
+      changes_since=None,
+      diffspec=self.diffspec,
+      include_dependees=self.include_dependees,
+      # TODO(#7346): parse --query expressions using the python ast module to support keyword args!
+      fast=True,
+    )
 
-@rule
-def changes_for_diffspec_request(changes_for_diffspec: ChangesForDiffspec) -> ChangedRequest:
-  return ChangedRequest(
-    changes_since=None,
-    diffspec=changes_for_diffspec.diffspec,
-    include_dependees=changes_for_diffspec.include_dependees,
-    # TODO(#7346): parse --query expressions using the python ast module to support keyword args!
-    fast=True,
-  )
+
+@dataclass(frozen=True)
+class FilterOperator(Operator):
+  filter_func: Callable
+
+  def as_hydration_request(self, thts):
+    return FilterOperands(
+      filter_func=self.filter_func,
+      thts=thts,
+    )
+
+
+@dataclass(frozen=True)
+class FilterOperands(QueryOperation):
+  filter_func: Callable
+  thts: TransitiveHydratedTargets
+
+  def apply(self) -> IntermediateResults:
+    return IntermediateResults(BuildFileAddresses(tuple(
+      t.address for t in self.thts.closure
+      if self.filter_func(t.adaptor)
+    )))
+
+
+
+@dataclass(frozen=True)
+class TypeFilter(QueryParser):
+  allowed_type_aliases: Tuple[str, ...]
+
+  function_name = 'type-filter'
+
+  @classmethod
+  def parse_from_args(cls, *allowed_type_aliases):
+    return cls(allowed_type_aliases=tuple(allowed_type_aliases))
+
+  def quick_operator(self):
+    return FilterOperator(
+      lambda t: t.type_alias in self.allowed_type_aliases
+    )
 
 
 class Noop:
@@ -122,19 +204,6 @@ class Noop:
 class OperatorRequest: pass
 
 
-@union
-class Operator(ABC):
-  """???"""
-
-  @abstractmethod
-  def hydrate_with_input(self, build_file_addresses):
-    """
-    ???/produce an object containing build file addresses which has a single rule graph path to
-    IntermediateResults, AND which has:
-      UnionRule(QueryOperation, <type of object returned by hydrate()>)
-    """
-
-
 @dataclass(frozen=True)
 class HydratedOperator:
   operator: Operator
@@ -152,18 +221,6 @@ class NoopOperator(Operator):
 
 
 @dataclass(frozen=True)
-class IntermediateResults:
-  build_file_addresses: BuildFileAddresses
-
-
-@union
-class QueryOperation(ABC):
-
-  @abstractmethod
-  def apply(self) -> IntermediateResults: ...
-
-
-@dataclass(frozen=True)
 class NoopOperands(QueryOperation):
   build_file_addresses: BuildFileAddresses
 
@@ -172,12 +229,33 @@ class NoopOperands(QueryOperation):
 
 
 @dataclass(frozen=True)
+class GetOperandsRequest:
+  op: Operator
+  build_file_addresses: BuildFileAddresses
+
+
+@dataclass(frozen=True)
+class WrappedOperands:
+  operands: QueryOperation
+
+
+@dataclass(frozen=True)
 class IntersectionOperator(Operator):
   to_intersect: BuildFileAddresses
 
-  def hydrate_with_input(self, build_file_addresses):
+  def quick_hydrate_with_input(self, build_file_addresses):
     return IntersectionOperands(lhs=self.to_intersect,
                                 rhs=build_file_addresses)
+
+@rule
+def hydrate_operands(req: GetOperandsRequest) -> WrappedOperands:
+  maybe_quick_operands = req.op.quick_hydrate_with_input(req.build_file_addresses)
+  if maybe_quick_operands is not None:
+    yield WrappedOperands(maybe_quick_operands)
+
+  thts = yield Get(TransitiveHydratedTargets, BuildFileAddresses, req.build_file_addresses)
+  operands = req.op.as_hydration_request(thts)
+  yield WrappedOperands(operands)
 
 
 # @rule
@@ -200,6 +278,8 @@ class IntersectionOperands(QueryOperation):
   def apply(self) -> IntermediateResults:
     if self.lhs is None:
       ret = self.rhs.dependencies
+    elif self.rhs is None:
+      ret = self.lhs.dependencies
     else:
       lhs = OrderedSet(self.lhs.dependencies)
       rhs = OrderedSet(self.rhs.dependencies)
@@ -229,7 +309,7 @@ class InitialBuildFileAddresses:
 
 @dataclass(frozen=True)
 class QueryPipeline:
-  exprs: Tuple[QueryParser, ...]
+  exprs: Tuple[QueryParseResult, ...]
 
 
 @dataclass(frozen=True)
@@ -244,6 +324,23 @@ class QueryPipelineRequest:
 
 
 @rule
+def extract_referenced_build_file_addresses(parser: QueryParseResult) -> IntermediateResults:
+  req = parser.parser.as_request()
+  bfa = yield Get(BuildFileAddresses, AsBuildFileAddressesRequest, req)
+  yield IntermediateResults(bfa)
+
+
+@rule
+def hydrate_operator(parser: QueryParseResult) -> HydratedOperator:
+  maybe_quick_op = parser.parser.quick_operator()
+  if maybe_quick_op is not None:
+    yield HydratedOperator(maybe_quick_op)
+
+  results = yield Get(IntermediateResults, QueryParseResult, parser)
+  yield HydratedOperator(IntersectionOperator(results.build_file_addresses))
+
+
+@rule
 def process_query_pipeline(query_pipeline_request: QueryPipelineRequest) -> QueryOutput:
   query_pipeline = query_pipeline_request.pipeline
   init_specs = query_pipeline_request.input_specs
@@ -254,16 +351,13 @@ def process_query_pipeline(query_pipeline_request: QueryPipelineRequest) -> Quer
     logger.debug(f'initial addresses: {build_file_addresses.addresses}')
   for expr in query_pipeline.exprs:
     logger.debug(f'expr: {expr}')
-    cur_owners_request = expr.as_owner_of_request()
-    cur_addresses = yield Get(BuildFileAddresses, OwnersRequest, cur_owners_request)
-    logger.debug(f'cur_addresses: {cur_addresses.addresses}')
-    dehydrated_operator = IntersectionOperator(build_file_addresses)
-    # hydrated_operator = yield Get(HydratedOperator, QueryParser, component)
-    operator_with_input = dehydrated_operator.hydrate_with_input(cur_addresses)
-    logger.debug(f'operator_with_input: {operator_with_input}')
-    # FIXME: THIS SHOULD WORK????!!!
-    # results = yield Get(IntermediateResults, QueryOperation, operator_with_input)
-    results = operator_with_input.apply()
+    dehydrated_operator = yield Get(HydratedOperator, QueryParseResult, expr)
+    operands = yield Get(WrappedOperands, GetOperandsRequest(
+      op=dehydrated_operator.operator,
+      build_file_addresses=build_file_addresses,
+    ))
+    logger.debug(f'operands: {operands}')
+    results = operands.operands.apply()
     build_file_addresses = results.build_file_addresses
   yield QueryOutput(build_file_addresses)
 
@@ -290,11 +384,6 @@ class QueryParseInput:
 
 
 class QueryParseError(Exception): pass
-
-
-@dataclass(frozen=True)
-class QueryParseResult:
-  parser: QueryParser
 
 
 # FIXME: allow returning an @union!!!
@@ -337,14 +426,19 @@ def rules():
     UnionRule(QueryParser, ChangesForDiffspec),
     UnionRule(QueryParser, ChangesSince),
     UnionRule(QueryParser, OwnerOf),
+    UnionRule(QueryParser, TypeFilter),
     UnionRule(QueryOperation, IntersectionOperands),
     # UnionRule(QueryOperation, NoopOperands),
     # addresses_intersection_operator,
-    changes_for_diffspec_request,
-    changes_since_request,
-    # hydrate_noop,
     known_query_expressions,
     apply_intersection,
     parse_query_expr,
     process_query_pipeline,
+    UnionRule(AsBuildFileAddressesRequest, OwnersRequest),
+    UnionRule(AsBuildFileAddressesRequest, ChangedRequest),
+    extract_referenced_build_file_addresses,
+    hydrate_operator,
+    UnionRule(Operator, FilterOperator),
+    UnionRule(QueryOperation, FilterOperands),
+    hydrate_operands,
   ]

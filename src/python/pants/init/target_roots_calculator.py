@@ -198,9 +198,7 @@ def get_target_roots(target_roots_request: TargetRootsRequest) -> TargetRoots:
   # if len(exprs) > 1:
   #   raise ValueError('Only one --query argument is currently supported! Received: {}.'
   #                    .format(exprs))
-  query_pipeline = QueryPipeline(tuple(
-    expr.parser for expr in exprs
-  ))
+  query_pipeline = QueryPipeline(tuple(exprs))
   query_output = yield Get(QueryOutput, QueryPipelineRequest(
     pipeline=query_pipeline,
     input_specs=initial_specs,

@@ -384,6 +384,10 @@ class HydratedTargets(Collection[HydratedTarget]):
   """An intransitive set of HydratedTarget objects."""
 
 
+# @union
+# class AsOwnersRequest: pass
+
+
 @dataclass(frozen=True)
 class OwnersRequest:
   """A request for the owners (and optionally, transitive dependees) of a set of file paths."""
@@ -615,4 +619,6 @@ def create_legacy_graph_tasks():
     hydrate_bundles,
     RootRule(OwnersRequest),
     UnionRule(SourcesLikeField, SourcesField),
+    # UnionRule(AsOwnersRequest, OwnersRequest),
+    # UnionRule(AsOwnersRequest, ChangedRequestWithScm)
   ]
