@@ -190,7 +190,7 @@ def get_target_roots(target_roots_request: TargetRootsRequest) -> TargetRoots:
   logger.debug('query exprs are: %s', exprs)
 
   if not exprs:
-    yield TargetRoots([initial_specs.specs])
+    yield TargetRoots(initial_specs.specs)
 
   # TODO(#7346): deprecate --owner-of and --changed-* in favor of --query versions, allow
   # pipelining of successive query expressions with the command-line target specs as the initial
