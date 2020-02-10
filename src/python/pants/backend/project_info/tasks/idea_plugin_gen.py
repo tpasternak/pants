@@ -75,8 +75,8 @@ class IdeaPluginGen(ConsoleTask):
                   'jdk name for the --java-language-level is used')
     register('--java-language-level', type=int, default=8,
              help='Sets the java language and jdk used to compile the project\'s java sources.')
-    register('--idea-plugin-possible-paths', type=list, default=['/Applications/IntelliJ IDEA CE.app/Contents/MacOS/idea',
-                                                                 '/Applications/IntelliJ IDEA.app/Contents/MacOS/idea'],
+    register('--idea-plugin-possible-paths', type=list, default=['/Applications/IntelliJ IDEA CE.app',
+                                                                 '/Applications/IntelliJ IDEA.app'],
              help='Sets the the list of paths for IntelliJ lookup.')
 
   def __init__(self, *args, **kwargs):
