@@ -75,6 +75,9 @@ class IdeaPluginGen(ConsoleTask):
                   'jdk name for the --java-language-level is used')
     register('--java-language-level', type=int, default=8,
              help='Sets the java language and jdk used to compile the project\'s java sources.')
+    register('--idea-plugin-possible-paths', type=list, default=['/Applications/IntelliJ IDEA CE.app/Contents/MacOS/idea',
+                                                                 '/Applications/IntelliJ IDEA.app/Contents/MacOS/idea'],
+             help='Sets the the list of paths for IntelliJ lookup.')
 
   def __init__(self, *args, **kwargs):
     super().__init__(*args, **kwargs)
@@ -87,6 +90,7 @@ class IdeaPluginGen(ConsoleTask):
     self.idea_workspace_template = os.path.join(_TEMPLATE_BASEDIR,
                                            'workspace-12.mustache')
     self.java_language_level = self.get_options().java_language_level
+    self.idea_plugin_possible_paths = self.get_options().idea_plugin_possible_paths
 
     if self.get_options().java_jdk_name:
       self.java_jdk = self.get_options().java_jdk_name
@@ -185,6 +189,6 @@ class IdeaPluginGen(ConsoleTask):
         subprocess.Popen([open_with, ide_file], stdout=null, stderr=null)
       else:
         try:
-          desktop.idea_open(ide_file)
+          desktop.idea_open(ide_file, self.idea_plugin_possible_paths)
         except desktop.OpenError as e:
           raise TaskError(e)
