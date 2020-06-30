@@ -17,6 +17,7 @@ from pants.backend.jvm.subsystems.scala_platform import ScalaPlatform
 from pants.backend.jvm.targets.jar_library import JarLibrary
 from pants.backend.jvm.targets.junit_tests import JUnitTests
 from pants.backend.jvm.targets.jvm_app import JvmApp
+from pants.backend.jvm.targets.jvm_binary import JvmBinary
 from pants.backend.jvm.targets.jvm_target import JvmTarget
 from pants.backend.jvm.targets.scala_library import ScalaLibrary
 from pants.backend.jvm.tasks.classpath_products import ClasspathProducts
@@ -361,6 +362,11 @@ class ExportFastpassTask(ResolveRequirementsTaskBase, IvyTaskMixin, CoursierMixi
                 except:
                     pass # ignore
                 # - export deviation
+
+            # + export deviation
+            if isinstance(current_target, JvmBinary):
+                info["main_class"] = current_target.main
+            # - export deviation
 
             info["roots"] = [
                 {
