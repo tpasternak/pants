@@ -1,2 +1,3 @@
 #!/bin/bash
-exec coursier launch org.scalameta:fastpass_2.12:1.6.0 --main scala.meta.fastpass.Fastpass -- $@
+COURSIER="$(dirname $0)/coursier"
+exec $COURSIER launch fastpass --contrib -- "$@"
