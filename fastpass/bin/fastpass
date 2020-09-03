@@ -1,0 +1,2 @@
+#!/bin/bash
+exec coursier launch org.scalameta:fastpass_2.12:1.6.0 --main scala.meta.fastpass.Fastpass -- $@
